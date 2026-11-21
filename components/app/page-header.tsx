@@ -1,0 +1,30 @@
+import type { ReactNode } from "react"
+
+/** `level` is the heading level: the app pages sit under the app's own h1, so they use h2. */
+export function PageHeader({ title, description, actions, level = 1 }: { title: string; description?: ReactNode; actions?: ReactNode; level?: 1 | 2 }) {
+  const Heading = level === 1 ? "h1" : "h2"
+  return (
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="min-w-0">
+        <Heading className={level === 1 ? "font-heading text-2xl font-semibold tracking-wider uppercase" : "font-heading text-lg font-semibold tracking-wider uppercase"}>{title}</Heading>
+        {description ? <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">{description}</p> : null}
+      </div>
+      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+    </div>
+  )
+}
+
+/** A heading for a group of cards on a page. */
+export function SectionTitle({ children, description }: { children: ReactNode; description?: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <h2 className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">{children}</h2>
+      {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
+    </div>
+  )
+}
+
+/** A short note on a page: a caveat, or what to do about an empty result. */
+export function Note({ children }: { children: ReactNode }) {
+  return <p className="border-l-2 border-primary bg-muted px-4 py-3 text-sm leading-relaxed text-muted-foreground">{children}</p>
+}

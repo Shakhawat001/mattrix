@@ -1,0 +1,83 @@
+# AppMetrics: the dashboard (web), the background reader (worker) and its database (db).
+#
+# Deploy on Coolify, or anywhere Docker Compose runs: copy .env.example to .env, fill it
+# in, then `docker compose up -d --build`. The steps are in docs/SELF_HOSTING.md.
+#
+# Nothing is published to the host. Put a reverse proxy in front of `web` (Coolify does this
+# for you when you give the service a domain). The database is reachable only by web and worker.
+
+name: appmetrics
+
+x-app-env: &app-env
+  # compose builds the database address from POSTGRES_PASSWORD, so a hex password needs no escaping.
+  DATABASE_URL: postgres://appmetrics:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/appmetrics
+  DASHBOARD_USER: ${DASHBOARD_USER:-admin}
+  DASHBOARD_PASSWORD_HASH: ${DASHBOARD_PASSWORD_HASH:-}
+  DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
+  SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in .env}
+  COOKIE_SECURE: ${COOKIE_SECURE:-true}
+  TRUST_PROXY: ${TRUST_PROXY:-true}
+  PROXY_HOPS: ${PROXY_HOPS:-1}
+  SYNC_INTERVAL_MINUTES: ${SYNC_INTERVAL_MINUTES:-60}
+  DEMO_MODE: ${DEMO_MODE:-false}
+
+x-hardening: &hardening
+  init: true
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: appmetrics
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: appmetrics
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appmetrics -d appmetrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  web:
+    <<: *hardening
+    build:
+      context: .
+      args:
+        ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+    image: appmetrics:latest
+    command: ["web"]
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "3000"
+
+  worker:
+    <<: *hardening
+    image: appmetrics:latest
+    command: ["worker"]
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+      web:
+        # The web container applies the database migrations on start; the worker waits for it.
+        condition: service_healthy
+    # The worker serves no web page, so the image's web health check does not apply to it.
+    healthcheck:
+      disable: true
+
+volumes:
+  db-data:

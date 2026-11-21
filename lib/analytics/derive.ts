@@ -1,0 +1,590 @@
+import { EVENT } from "@/lib/partner/query"
+
+// Turns one app's raw events into the facts the dashboard is built on. Pure: events
+// and a clock in, rows out, no database. tests/derive.test.ts pins every definition.
+//
+// What it makes:
+//   installs        one stay per install of a shop: installed, then uninstalled or still open
+//   subscriptions   one period per shop per plan and price (a plan change starts a new one)
+//   trials          what became of each free trial
+//   daily           one row per UTC day: what happened that day, and the stock at the end of it
+//
+// Where Shopify's events leave a choice, the choice is made here and written down. The main ones:
+//
+//   - MRR and subscribers count paying shops only. A free trial is tracked on its own and
+//     becomes MRR when it converts, which is the usual SaaS definition (ChartMogul, Baremetrics
+//     and Stripe all leave trials out of MRR).
+//   - A trial converts when it ends with the subscription still open. Shopify bills app charges
+//     on the merchant's own invoice date, which can be weeks after the trial ended, so the charge
+//     event is not waited for; an earlier charge converts it earlier.
+//   - A cancellation counts on the day it takes effect: `cancelEffectiveOn` when Shopify gives a
+//     later date, otherwise the moment of the event.
+//   - Subscription events carry no subscription id, so a plan change has to be recognized: a
+//     second subscription while one is open, a cancel naming another plan moments after a new one
+//     began, or a cancel followed within minutes by a new subscription are all one plan change.
+
+const DAY_MS = 86_400_000
+/** A cancel and a new subscription this close together are one plan change, not a loss and a new sale. */
+const REPLACE_WINDOW_MS = 10 * 60_000
+
+export type RawEvent = {
+  type: string
+  occurredAt: Date
+  shop: string | null
+  reason: string | null
+  reasonDescription: string | null
+  planHandle: string | null
+  billingPeriod: string | null
+  trialDays: number | null
+  /** Trial days left when the event happened. Shorter than trialDays for a merchant who used part of a trial before. */
+  trialDaysRemaining: number | null
+  /** When a canceled subscription actually ends, if Shopify gives a date. */
+  cancelEffectiveOn: Date | null
+  amountCents: number | null
+  grossCents: number | null
+  netCents: number | null
+  feeCents: number | null
+}
+
+export type InstallRow = {
+  shop: string
+  seq: number
+  installedAt: Date
+  uninstalledAt: Date | null
+  reason: string | null
+  reasonDescription: string | null
+}
+
+export type SubscriptionRow = {
+  shop: string
+  startedAt: Date
+  endedAt: Date | null
+  endReason: "canceled" | "uninstalled" | "frozen" | "replaced" | null
+  kind: "new" | "change" | "resume"
+  monthlyCents: number
+  previousMonthlyCents: number | null
+  planHandle: string | null
+  billingPeriod: string | null
+  /** The end of the trial this period belongs to, if it began during one. */
+  trialEndsAt: Date | null
+  /** When that trial turned into money. A period with a trial and no conversion never paid. */
+  convertedAt: Date | null
+}
+
+export type TrialRow = {
+  shop: string
+  startedAt: Date
+  endsAt: Date
+  trialDays: number
+  resolvedAt: Date | null
+  outcome: "converted" | "canceled" | "open"
+}
+
+export type DailyRow = {
+  date: string
+  installs: number
+  reinstalls: number
+  uninstalls: number
+  newSubs: number
+  canceledSubs: number
+  trialsStarted: number
+  trialsConverted: number
+  trialsCanceled: number
+  newMrrCents: number
+  expansionMrrCents: number
+  contractionMrrCents: number
+  churnedMrrCents: number
+  chargedCents: number
+  grossEarnedCents: number
+  netEarnedCents: number
+  feeCents: number
+  refundedCents: number
+  creditCents: number
+  activeInstalls: number
+  /** Paying subscribers. */
+  activeSubs: number
+  /** Subscriptions still in their free trial. */
+  trialSubs: number
+  /** Paying MRR. */
+  mrrCents: number
+  /** What the running trials would add to MRR if they all converted. */
+  trialMrrCents: number
+}
+
+export type Derived = {
+  installs: InstallRow[]
+  subscriptions: SubscriptionRow[]
+  trials: TrialRow[]
+  daily: DailyRow[]
+  /** Uninstalls whose install was never seen (before the backfill, or an event Shopify did not send). */
+  orphanUninstalls: number
+}
+
+/** A yearly price spread over twelve months. Anything else is taken as one month. */
+export function monthlyCents(amountCents: number | null, billingPeriod: string | null): number | null {
+  if (amountCents === null) return null
+  return billingPeriod === "ANNUAL" ? Math.round(amountCents / 12) : amountCents
+}
+
+// On the same instant: the install first, then a cancel (so a cancel and a new subscription
+// at the same moment read as a plan change), then what a subscription does, charges, then the endings.
+const RANK: Record<string, number> = {
+  RELATIONSHIP_INSTALLED: 0,
+  SUBSCRIPTION_CANCELED: 1,
+  SUBSCRIPTION_CREATED: 2,
+  SUBSCRIPTION_UPDATED: 2,
+  SUBSCRIPTION_UNFROZEN: 2,
+  SUBSCRIPTION_FROZEN: 4,
+  RELATIONSHIP_UNINSTALLED: 5,
+}
+const rankOf = (type: string) => RANK[type] ?? 3
+
+type TrialRef = { endsAt: Date; convertedAt: Date | null }
+type Trial = { row: TrialRow; ref: TrialRef }
+type Period = SubscriptionRow & { ref: TrialRef | null; scheduledEnd: Date | null }
+type ShopState = {
+  install: InstallRow | null
+  installCount: number
+  sub: Period | null
+  lastMonthly: number
+  lastPlan: string | null
+  lastBilling: string | null
+  trial: Trial | null
+  /** The last period that ended in a cancel, and the trial it ended, in case a new subscription follows at once. */
+  lastCancel: { period: Period; at: Date; trial: Trial | null } | null
+}
+
+/** Does the event name the plan this period is on? An event that names no plan cannot be told apart, so it counts as a match. */
+function namesSamePlan(p: Period, e: RawEvent): boolean {
+  if (e.planHandle && p.planHandle) return e.planHandle === p.planHandle && (!e.billingPeriod || !p.billingPeriod || e.billingPeriod === p.billingPeriod)
+  const monthly = monthlyCents(e.amountCents, e.billingPeriod)
+  return monthly === null || monthly === p.monthlyCents
+}
+
+/** Does an update move the shop to a different plan or price? */
+function changesPlan(p: Period, e: RawEvent): boolean {
+  const monthly = monthlyCents(e.amountCents, e.billingPeriod)
+  return (
+    (e.planHandle !== null && e.planHandle !== p.planHandle) ||
+    (e.billingPeriod !== null && e.billingPeriod !== p.billingPeriod) ||
+    (monthly !== null && monthly !== p.monthlyCents)
+  )
+}
+
+/** A Date scalar ("2026-02-10") or timestamp read as the start of that UTC day. */
+const startOfUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+
+export function derive(events: RawEvent[], now: Date): Derived {
+  const sorted = events
+    .map((e, index) => ({ e, index }))
+    .sort((a, b) => a.e.occurredAt.getTime() - b.e.occurredAt.getTime() || rankOf(a.e.type) - rankOf(b.e.type) || a.index - b.index)
+    .map(({ e }) => e)
+
+  const installs: InstallRow[] = []
+  const periods: Period[] = []
+  const trials: TrialRow[] = []
+  const uninstallDates: Date[] = []
+  const moneyEvents: RawEvent[] = []
+  const shops = new Map<string, ShopState>()
+  let orphanUninstalls = 0
+
+  const stateOf = (shop: string): ShopState => {
+    let s = shops.get(shop)
+    if (!s) shops.set(shop, (s = { install: null, installCount: 0, sub: null, lastMonthly: 0, lastPlan: null, lastBilling: null, trial: null, lastCancel: null }))
+    return s
+  }
+
+  function endTrial(s: ShopState, at: Date, outcome: "converted" | "canceled") {
+    if (!s.trial) return
+    s.trial.row.outcome = outcome
+    s.trial.row.resolvedAt = at
+    if (outcome === "converted") s.trial.ref.convertedAt = at
+    s.trial = null
+  }
+
+  function closePeriod(s: ShopState, at: Date, reason: NonNullable<SubscriptionRow["endReason"]>) {
+    if (!s.sub) return
+    const period = s.sub
+    period.endedAt = at
+    period.endReason = reason
+    s.lastMonthly = period.monthlyCents
+    s.lastPlan = period.planHandle
+    s.lastBilling = period.billingPeriod
+    s.sub = null
+    s.lastCancel = reason === "canceled" ? { period, at, trial: s.trial } : null
+    // A subscription that ends for good before its trial turned into money ends the trial too.
+    if (reason !== "replaced") endTrial(s, at, "canceled")
+  }
+
+  function openPeriod(s: ShopState, e: RawEvent, kind: SubscriptionRow["kind"]): Period {
+    const shop = e.shop as string
+    const monthly = monthlyCents(e.amountCents, e.billingPeriod) ?? (kind === "new" ? 0 : s.lastMonthly)
+    const period: Period = {
+      shop,
+      startedAt: e.occurredAt,
+      endedAt: null,
+      endReason: null,
+      kind,
+      monthlyCents: monthly,
+      previousMonthlyCents: kind === "change" ? s.lastMonthly : null,
+      planHandle: e.planHandle ?? (kind === "new" ? null : s.lastPlan),
+      billingPeriod: e.billingPeriod ?? (kind === "new" ? null : s.lastBilling),
+      trialEndsAt: null,
+      convertedAt: null,
+      // A trial in progress carries over to the new plan.
+      ref: s.trial?.ref ?? null,
+      scheduledEnd: null,
+    }
+    periods.push(period)
+    s.sub = period
+    s.lastMonthly = monthly
+    s.lastPlan = period.planHandle
+    s.lastBilling = period.billingPeriod
+    return period
+  }
+
+  /**
+   * What a subscription event says about the free trial. `mayStart`: the event began a subscription,
+   * so it may begin a trial. `nominal`: when Shopify gives no days remaining, the plan's trial length
+   * stands in (only for a creation, where the two are the same for a first-time merchant).
+   */
+  function applyTrial(s: ShopState, e: RawEvent, mayStart: boolean, nominal: boolean) {
+    const remaining = e.trialDaysRemaining ?? (nominal ? e.trialDays : null)
+    if (remaining === null || !s.sub) return
+    if (s.trial) {
+      if (remaining > 0) {
+        const endsAt = new Date(e.occurredAt.getTime() + remaining * DAY_MS)
+        s.trial.row.endsAt = endsAt
+        s.trial.ref.endsAt = endsAt
+      } else {
+        // No trial days left on the plan now in force: billing has started.
+        endTrial(s, e.occurredAt, "converted")
+      }
+    } else if (mayStart && remaining > 0) {
+      const endsAt = new Date(e.occurredAt.getTime() + remaining * DAY_MS)
+      const row: TrialRow = { shop: s.sub.shop, startedAt: e.occurredAt, endsAt, trialDays: remaining, resolvedAt: null, outcome: "open" }
+      trials.push(row)
+      s.trial = { row, ref: { endsAt, convertedAt: null } }
+      s.sub.ref = s.trial.ref
+    }
+  }
+
+  /** A subscription created, or updated with nothing open: a new one, a plan change, or the second half of one. */
+  function subscribe(s: ShopState, e: RawEvent) {
+    const recent = s.lastCancel && e.occurredAt.getTime() - s.lastCancel.at.getTime() <= REPLACE_WINDOW_MS ? s.lastCancel : null
+    if (s.sub) {
+      closePeriod(s, e.occurredAt, "replaced")
+      openPeriod(s, e, "change")
+    } else if (recent) {
+      // Canceled moments ago and subscribed again: one plan change. The old period hands over
+      // at this moment, and a trial it had ended goes on.
+      recent.period.endReason = "replaced"
+      recent.period.endedAt = e.occurredAt
+      if (recent.trial) {
+        recent.trial.row.outcome = "open"
+        recent.trial.row.resolvedAt = null
+        s.trial = recent.trial
+      }
+      openPeriod(s, e, "change")
+    } else {
+      openPeriod(s, e, "new")
+    }
+    s.lastCancel = null
+  }
+
+  /**
+   * Brings a shop up to `t`: a trial that reached its end with the subscription open converts,
+   * and a cancellation that took effect ends the period. Whichever comes first happens first.
+   */
+  function settle(s: ShopState, t: Date) {
+    for (;;) {
+      const conversion = s.trial && s.sub ? s.trial.row.endsAt : null
+      const end = s.sub?.scheduledEnd ?? null
+      if (end && end.getTime() <= t.getTime() && (!conversion || end.getTime() <= conversion.getTime())) {
+        closePeriod(s, end, "canceled")
+        s.lastCancel = null
+        continue
+      }
+      if (conversion && conversion.getTime() <= t.getTime()) {
+        endTrial(s, conversion, "converted")
+        continue
+      }
+      return
+    }
+  }
+
+  for (const e of sorted) {
+    const isMoney = e.type.startsWith("CHARGE_") || e.type.startsWith("EARNING_") || e.type.startsWith("CREDIT_")
+    if (isMoney) moneyEvents.push(e)
+    if (e.type === EVENT.UNINSTALLED) uninstallDates.push(e.occurredAt)
+    if (!e.shop) {
+      if (e.type === EVENT.UNINSTALLED) orphanUninstalls++
+      continue
+    }
+    const s = stateOf(e.shop)
+    settle(s, e.occurredAt)
+
+    switch (e.type) {
+      case EVENT.INSTALLED:
+        if (!s.install) {
+          s.installCount++
+          const row: InstallRow = { shop: e.shop, seq: s.installCount, installedAt: e.occurredAt, uninstalledAt: null, reason: null, reasonDescription: null }
+          installs.push(row)
+          s.install = row
+        }
+        break
+
+      case EVENT.UNINSTALLED:
+        if (s.install) {
+          s.install.uninstalledAt = e.occurredAt
+          s.install.reason = e.reason
+          s.install.reasonDescription = e.reasonDescription
+          s.install = null
+        } else {
+          orphanUninstalls++
+        }
+        // Uninstalling takes the subscription with it, and any trial.
+        closePeriod(s, e.occurredAt, "uninstalled")
+        s.lastCancel = null
+        break
+
+      case EVENT.SUB_CREATED:
+        subscribe(s, e)
+        applyTrial(s, e, true, true)
+        break
+
+      case EVENT.SUB_UPDATED: {
+        // With nothing open, the creation was missed (before the history starts): this begins it.
+        const opens = !s.sub
+        if (opens) subscribe(s, e)
+        else if (s.sub && changesPlan(s.sub, e)) {
+          closePeriod(s, e.occurredAt, "replaced")
+          openPeriod(s, e, "change")
+        }
+        applyTrial(s, e, opens, false)
+        break
+      }
+
+      case EVENT.SUB_CANCELED: {
+        if (!s.sub) break
+        // A cancel naming another plan, moments after a new one began, is the old subscription being replaced.
+        if (!namesSamePlan(s.sub, e) && e.occurredAt.getTime() - s.sub.startedAt.getTime() <= REPLACE_WINDOW_MS) break
+        const effective = e.cancelEffectiveOn ? startOfUtcDay(e.cancelEffectiveOn) : null
+        if (effective && effective.getTime() > e.occurredAt.getTime()) s.sub.scheduledEnd = effective
+        else closePeriod(s, e.occurredAt, "canceled")
+        break
+      }
+
+      case EVENT.SUB_CANCELLATION_SCHEDULED: {
+        if (!s.sub || !e.cancelEffectiveOn) break
+        const effective = startOfUtcDay(e.cancelEffectiveOn)
+        if (effective.getTime() > e.occurredAt.getTime()) s.sub.scheduledEnd = effective
+        else closePeriod(s, e.occurredAt, "canceled")
+        break
+      }
+
+      case EVENT.SUB_FROZEN:
+        closePeriod(s, e.occurredAt, "frozen")
+        s.lastCancel = null
+        break
+
+      case EVENT.SUB_UNFROZEN:
+        if (!s.sub) openPeriod(s, { ...e, amountCents: null }, "resume")
+        break
+
+      case EVENT.CHARGE_RECURRING:
+        // A real charge before the trial's end turns it into money then.
+        if ((e.amountCents ?? 0) > 0 && s.trial && s.sub) endTrial(s, e.occurredAt, "converted")
+        break
+    }
+  }
+
+  // Up to now: trials that have ended convert, cancellations that have taken effect end.
+  for (const s of shops.values()) settle(s, now)
+
+  // Listed field by field, so nothing used only while working (the trial reference, a pending end) is stored.
+  const subscriptions: SubscriptionRow[] = periods.map((p) => ({
+    shop: p.shop,
+    startedAt: p.startedAt,
+    endedAt: p.endedAt,
+    endReason: p.endReason,
+    kind: p.kind,
+    monthlyCents: p.monthlyCents,
+    previousMonthlyCents: p.previousMonthlyCents,
+    planHandle: p.planHandle,
+    billingPeriod: p.billingPeriod,
+    trialEndsAt: p.ref?.endsAt ?? null,
+    convertedAt: p.ref?.convertedAt ?? null,
+  }))
+
+  return {
+    installs,
+    subscriptions,
+    trials,
+    daily: buildDaily({ sorted, installs, periods, trials, uninstallDates, moneyEvents, now }),
+    orphanUninstalls,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Daily rollup
+// ---------------------------------------------------------------------------
+
+const utcMidnight = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+
+/** When a period starts paying: its start, or its trial's conversion. Null when it never pays. */
+function paidFrom(p: Period): number | null {
+  if (p.monthlyCents <= 0) return null
+  const from = p.ref ? (p.ref.convertedAt ? Math.max(p.startedAt.getTime(), p.ref.convertedAt.getTime()) : null) : p.startedAt.getTime()
+  if (from === null || (p.endedAt && from >= p.endedAt.getTime())) return null
+  return from
+}
+
+function buildDaily(input: {
+  sorted: RawEvent[]
+  installs: InstallRow[]
+  periods: Period[]
+  trials: TrialRow[]
+  uninstallDates: Date[]
+  moneyEvents: RawEvent[]
+  now: Date
+}): DailyRow[] {
+  const { sorted, installs, periods, trials, uninstallDates, moneyEvents, now } = input
+  if (sorted.length === 0) return []
+
+  const firstMs = utcMidnight(sorted[0].occurredAt)
+  const length = Math.max(1, Math.floor((utcMidnight(now) - firstMs) / DAY_MS) + 1)
+  const at = (ms: number) => Math.min(length - 1, Math.max(0, Math.floor((utcMidnight(new Date(ms)) - firstMs) / DAY_MS)))
+  const series = () => new Array<number>(length).fill(0)
+
+  // Flows: what happened on each day.
+  const f = {
+    installs: series(), reinstalls: series(), uninstalls: series(),
+    newSubs: series(), canceledSubs: series(),
+    trialsStarted: series(), trialsConverted: series(), trialsCanceled: series(),
+    newMrr: series(), expansion: series(), contraction: series(), churned: series(),
+    charged: series(), gross: series(), net: series(), fee: series(), refunded: series(), credit: series(),
+  }
+  // Stocks as running changes: +1 on the day a thing starts, -1 on the day it ends.
+  const s = { installs: series(), subs: series(), mrr: series(), trialSubs: series(), trialMrr: series() }
+
+  for (const i of installs) {
+    f.installs[at(i.installedAt.getTime())]++
+    if (i.seq > 1) f.reinstalls[at(i.installedAt.getTime())]++
+    s.installs[at(i.installedAt.getTime())]++
+    if (i.uninstalledAt) s.installs[at(i.uninstalledAt.getTime())]--
+  }
+  for (const d of uninstallDates) f.uninstalls[at(d.getTime())]++
+
+  // A shop's periods in order, so a plan change can look at the period before and after it.
+  const byShop = new Map<string, Period[]>()
+  for (const p of periods) {
+    const list = byShop.get(p.shop)
+    if (list) list.push(p)
+    else byShop.set(p.shop, [p])
+  }
+
+  for (const list of byShop.values()) {
+    list.forEach((p, i) => {
+      const from = paidFrom(p)
+      const start = p.startedAt.getTime()
+
+      // The part of the period spent in a free trial.
+      if (p.monthlyCents > 0 && p.ref) {
+        const trialEnd = from ?? p.endedAt?.getTime() ?? null
+        if (trialEnd === null || trialEnd > start) {
+          s.trialSubs[at(start)]++
+          s.trialMrr[at(start)] += p.monthlyCents
+          if (trialEnd !== null) {
+            s.trialSubs[at(trialEnd)]--
+            s.trialMrr[at(trialEnd)] -= p.monthlyCents
+          }
+        }
+      }
+
+      if (from === null) return // free, or a trial that never turned into money
+
+      // Revenue starts: a plan change from a paying plan is expansion or contraction; anything
+      // else (a new subscription, a converted trial, a resume, a move off a free plan) is new.
+      const prev = list[i - 1]
+      const handedOverFromPrev = p.kind === "change" && from === start && !!prev && prev.endReason === "replaced" && paidFrom(prev) !== null
+      if (handedOverFromPrev) {
+        const previous = prev.monthlyCents
+        if (p.monthlyCents > previous) f.expansion[at(from)] += p.monthlyCents - previous
+        else if (p.monthlyCents < previous) f.contraction[at(from)] += previous - p.monthlyCents
+      } else {
+        f.newMrr[at(from)] += p.monthlyCents
+        f.newSubs[at(from)]++
+      }
+      s.subs[at(from)]++
+      s.mrr[at(from)] += p.monthlyCents
+
+      // Revenue ends: lost, unless a plan change hands it straight to a paying successor.
+      if (p.endedAt) {
+        const end = p.endedAt.getTime()
+        s.subs[at(end)]--
+        s.mrr[at(end)] -= p.monthlyCents
+        const next = list[i + 1]
+        const handedOverToNext = p.endReason === "replaced" && !!next && next.kind === "change" && paidFrom(next) === next.startedAt.getTime()
+        if (!handedOverToNext) {
+          f.churned[at(end)] += p.monthlyCents
+          f.canceledSubs[at(end)]++
+        }
+      }
+    })
+  }
+
+  for (const t of trials) {
+    f.trialsStarted[at(t.startedAt.getTime())]++
+    if (t.outcome === "converted" && t.resolvedAt) f.trialsConverted[at(t.resolvedAt.getTime())]++
+    if (t.outcome === "canceled" && t.resolvedAt) f.trialsCanceled[at(t.resolvedAt.getTime())]++
+  }
+
+  for (const e of moneyEvents) {
+    const day = at(e.occurredAt.getTime())
+    if (e.type.startsWith("CHARGE_")) f.charged[day] += e.amountCents ?? 0
+    else if (e.type.startsWith("EARNING_")) {
+      f.gross[day] += e.grossCents ?? 0
+      f.net[day] += e.netCents ?? 0
+      f.fee[day] += e.feeCents ?? 0
+      if (e.type === EVENT.EARNING_REFUND) f.refunded[day] += Math.abs(e.grossCents ?? e.netCents ?? 0)
+    } else if (e.type === EVENT.CREDIT_APPLIED) f.credit[day] += e.amountCents ?? 0
+  }
+
+  const rows: DailyRow[] = []
+  const run = { installs: 0, subs: 0, mrr: 0, trialSubs: 0, trialMrr: 0 }
+  for (let d = 0; d < length; d++) {
+    run.installs += s.installs[d]
+    run.subs += s.subs[d]
+    run.mrr += s.mrr[d]
+    run.trialSubs += s.trialSubs[d]
+    run.trialMrr += s.trialMrr[d]
+    rows.push({
+      date: new Date(firstMs + d * DAY_MS).toISOString().slice(0, 10),
+      installs: f.installs[d],
+      reinstalls: f.reinstalls[d],
+      uninstalls: f.uninstalls[d],
+      newSubs: f.newSubs[d],
+      canceledSubs: f.canceledSubs[d],
+      trialsStarted: f.trialsStarted[d],
+      trialsConverted: f.trialsConverted[d],
+      trialsCanceled: f.trialsCanceled[d],
+      newMrrCents: f.newMrr[d],
+      expansionMrrCents: f.expansion[d],
+      contractionMrrCents: f.contraction[d],
+      churnedMrrCents: f.churned[d],
+      chargedCents: f.charged[d],
+      grossEarnedCents: f.gross[d],
+      netEarnedCents: f.net[d],
+      feeCents: f.fee[d],
+      refundedCents: f.refunded[d],
+      creditCents: f.credit[d],
+      activeInstalls: run.installs,
+      activeSubs: run.subs,
+      trialSubs: run.trialSubs,
+      mrrCents: run.mrr,
+      trialMrrCents: run.trialMrr,
+    })
+  }
+  return rows
+}

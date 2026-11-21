@@ -1,0 +1,14 @@
+# For trying it on your own computer over plain http:
+#
+#   docker compose -f compose.yaml -f compose.local.yaml up -d --build
+#
+# then open http://localhost:3000. The port is published on 127.0.0.1 only, so nothing else
+# on your network can reach it. Not for a server: there, use compose.yaml alone behind https.
+
+services:
+  web:
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    environment:
+      COOKIE_SECURE: "false"
+      TRUST_PROXY: "false"

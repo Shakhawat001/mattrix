@@ -1,0 +1,565 @@
+import { describe, expect, it } from "vitest"
+import { derive, monthlyCents, type DailyRow, type RawEvent } from "@/lib/analytics/derive"
+
+const at = (iso: string) => new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso)
+
+function ev(type: string, when: string, shop: string | null, over: Partial<RawEvent> = {}): RawEvent {
+  return {
+    type,
+    occurredAt: at(when),
+    shop,
+    reason: null,
+    reasonDescription: null,
+    planHandle: null,
+    billingPeriod: null,
+    trialDays: null,
+    trialDaysRemaining: null,
+    cancelEffectiveOn: null,
+    amountCents: null,
+    grossCents: null,
+    netCents: null,
+    feeCents: null,
+    ...over,
+  }
+}
+
+const NOW = at("2026-02-10")
+const monthly = (amountCents: number, trialDays: number | null = null, planHandle = "pro") =>
+  ({ amountCents, trialDays, planHandle, billingPeriod: "EVERY_30_DAYS" }) satisfies Partial<RawEvent>
+const dayOf = (r: ReturnType<typeof derive>, date: string) => r.daily.find((d) => d.date === date)!
+const mrrAddsUp = (r: ReturnType<typeof derive>) => {
+  for (let i = 1; i < r.daily.length; i++) {
+    const [prev, d] = [r.daily[i - 1], r.daily[i]]
+    expect(d.mrrCents, d.date).toBe(prev.mrrCents + d.newMrrCents + d.expansionMrrCents - d.contractionMrrCents - d.churnedMrrCents)
+  }
+}
+
+// A small history with every kind of thing in it. Day 0 is 2026-01-01.
+//   A  installs, 7-day trial on $20, which converts on 8 Jan, upgrades to $30 on 20 Jan, cancels and uninstalls on 5 Feb
+//   B  installs, trial on a $240 a year plan, cancels inside the trial on 5 Jan: never paid
+//   C  installs and uninstalls the same day, comes back on 12 Jan and stays
+//   D  an uninstall whose install was never seen
+//   E  installs, $10 plan with no trial, frozen on 15 Jan, unfrozen on 16 Jan
+const history: RawEvent[] = [
+  ev("RELATIONSHIP_INSTALLED", "2026-01-01T10:00:00Z", "a.myshopify.com"),
+  ev("SUBSCRIPTION_CREATED", "2026-01-01T11:00:00Z", "a.myshopify.com", monthly(2000, 7)),
+  ev("CHARGE_RECURRING", "2026-01-08T11:00:00Z", "a.myshopify.com", { amountCents: 2000 }),
+  ev("EARNING_CHARGE_RECURRING", "2026-01-11", "a.myshopify.com", { grossCents: 2000, netCents: 1700, feeCents: 300 }),
+  ev("SUBSCRIPTION_UPDATED", "2026-01-20", "a.myshopify.com", monthly(3000)),
+  ev("EARNING_REFUND", "2026-01-25", "a.myshopify.com", { grossCents: -500, netCents: -425, feeCents: -75 }),
+  ev("CREDIT_APPLIED", "2026-01-26", "a.myshopify.com", { amountCents: 300 }),
+  ev("SUBSCRIPTION_CANCELED", "2026-02-05T09:00:00Z", "a.myshopify.com"),
+  ev("RELATIONSHIP_UNINSTALLED", "2026-02-05T12:00:00Z", "a.myshopify.com", { reason: "too_expensive", reasonDescription: "Too much for us" }),
+
+  ev("RELATIONSHIP_INSTALLED", "2026-01-02T09:00:00Z", "b.myshopify.com"),
+  ev("SUBSCRIPTION_CREATED", "2026-01-02T09:30:00Z", "b.myshopify.com", { amountCents: 24000, billingPeriod: "ANNUAL", trialDays: 7, planHandle: "yearly" }),
+  ev("SUBSCRIPTION_CANCELED", "2026-01-05T09:00:00Z", "b.myshopify.com"),
+  ev("RELATIONSHIP_UNINSTALLED", "2026-01-05T09:05:00Z", "b.myshopify.com"),
+
+  ev("RELATIONSHIP_INSTALLED", "2026-01-03T09:00:00Z", "c.myshopify.com"),
+  ev("RELATIONSHIP_UNINSTALLED", "2026-01-03T15:00:00Z", "c.myshopify.com"),
+  ev("RELATIONSHIP_INSTALLED", "2026-01-12", "c.myshopify.com"),
+
+  ev("RELATIONSHIP_UNINSTALLED", "2026-01-04", "d.myshopify.com"),
+
+  ev("RELATIONSHIP_INSTALLED", "2026-01-10", "e.myshopify.com"),
+  ev("SUBSCRIPTION_CREATED", "2026-01-10", "e.myshopify.com", monthly(1000, null, "basic")),
+  ev("SUBSCRIPTION_FROZEN", "2026-01-15", "e.myshopify.com"),
+  ev("SUBSCRIPTION_UNFROZEN", "2026-01-16", "e.myshopify.com"),
+]
+
+const result = derive(history, NOW)
+const day = (date: string): DailyRow => dayOf(result, date)
+
+describe("monthlyCents", () => {
+  it("spreads a yearly price over twelve months and leaves others alone", () => {
+    expect(monthlyCents(24000, "ANNUAL")).toBe(2000)
+    expect(monthlyCents(9900, "ANNUAL")).toBe(825)
+    expect(monthlyCents(2499, "EVERY_30_DAYS")).toBe(2499)
+    expect(monthlyCents(2499, null)).toBe(2499)
+    expect(monthlyCents(null, "ANNUAL")).toBeNull()
+  })
+})
+
+describe("installs", () => {
+  it("makes one stay per install, and numbers a shop's returns", () => {
+    expect(result.installs).toHaveLength(5)
+    const c = result.installs.filter((i) => i.shop === "c.myshopify.com")
+    expect(c.map((i) => i.seq)).toEqual([1, 2])
+    expect(c[0].uninstalledAt).not.toBeNull()
+    expect(c[1].uninstalledAt).toBeNull()
+  })
+
+  it("keeps the reason and the merchant's own words on the stay that ended", () => {
+    const a = result.installs.find((i) => i.shop === "a.myshopify.com")!
+    expect(a.reason).toBe("too_expensive")
+    expect(a.reasonDescription).toBe("Too much for us")
+    expect(a.uninstalledAt?.toISOString()).toBe("2026-02-05T12:00:00.000Z")
+  })
+
+  it("counts an uninstall whose install it never saw, but gives it no stay", () => {
+    expect(result.orphanUninstalls).toBe(1)
+    expect(result.installs.some((i) => i.shop === "d.myshopify.com")).toBe(false)
+  })
+
+  it("ignores a second install event while one stay is open", () => {
+    const r = derive([ev("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"), ev("RELATIONSHIP_INSTALLED", "2026-01-02", "x.myshopify.com")], NOW)
+    expect(r.installs).toHaveLength(1)
+  })
+})
+
+describe("subscriptions", () => {
+  const periods = (shop: string, r = result) => r.subscriptions.filter((s) => s.shop === shop).sort((x, y) => x.startedAt.getTime() - y.startedAt.getTime())
+
+  it("starts a new period at a plan change and carries the old price along", () => {
+    const [first, second] = periods("a.myshopify.com")
+    expect(first).toMatchObject({ kind: "new", monthlyCents: 2000, endReason: "replaced", planHandle: "pro" })
+    expect(second).toMatchObject({ kind: "change", monthlyCents: 3000, previousMonthlyCents: 2000, endReason: "canceled" })
+  })
+
+  it("normalizes a yearly plan to a monthly value", () => {
+    expect(periods("b.myshopify.com")[0]).toMatchObject({ monthlyCents: 2000, billingPeriod: "ANNUAL", planHandle: "yearly" })
+  })
+
+  it("ends a frozen period and resumes it at the same price and plan", () => {
+    const [frozen, resumed] = periods("e.myshopify.com")
+    expect(frozen).toMatchObject({ endReason: "frozen", monthlyCents: 1000 })
+    expect(resumed).toMatchObject({ kind: "resume", monthlyCents: 1000, planHandle: "basic", endedAt: null })
+  })
+
+  it("records the trial's end and conversion on the period that began it, not on later ones", () => {
+    const [first, afterwards] = periods("a.myshopify.com")
+    expect(first.trialEndsAt?.toISOString()).toBe("2026-01-08T11:00:00.000Z")
+    expect(first.convertedAt?.toISOString()).toBe("2026-01-08T11:00:00.000Z")
+    // The trial was over before the plan change, so the new period has none.
+    expect(afterwards.trialEndsAt).toBeNull()
+    expect(afterwards.convertedAt).toBeNull()
+    expect(periods("b.myshopify.com")[0].convertedAt).toBeNull()
+  })
+
+  it("does not open a new period for an update that keeps the same plan and price", () => {
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", "x.myshopify.com", monthly(1000)),
+        ev("SUBSCRIPTION_UPDATED", "2026-01-05", "x.myshopify.com", monthly(1000)),
+      ],
+      NOW,
+    )
+    expect(r.subscriptions).toHaveLength(1)
+  })
+
+  it("shares one trial between the periods of a plan change made during it", () => {
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", "x.myshopify.com", monthly(1000, 14)),
+        ev("SUBSCRIPTION_UPDATED", "2026-01-05", "x.myshopify.com", monthly(2000)),
+      ],
+      NOW,
+    )
+    const [first, second] = periods("x.myshopify.com", r)
+    expect(first.convertedAt?.toISOString()).toBe("2026-01-15T12:00:00.000Z")
+    expect(second.convertedAt?.toISOString()).toBe("2026-01-15T12:00:00.000Z")
+    expect(r.trials).toHaveLength(1)
+    // Paying starts when the trial ends, at the price in force then.
+    expect(dayOf(r, "2026-01-15")).toMatchObject({ activeSubs: 1, mrrCents: 2000, newMrrCents: 2000, trialSubs: 0 })
+    expect(dayOf(r, "2026-01-14")).toMatchObject({ activeSubs: 0, mrrCents: 0, trialSubs: 1, trialMrrCents: 2000 })
+    mrrAddsUp(r)
+  })
+})
+
+describe("trials", () => {
+  it("records what became of each", () => {
+    expect(result.trials).toHaveLength(2)
+    const a = result.trials.find((t) => t.shop === "a.myshopify.com")!
+    const b = result.trials.find((t) => t.shop === "b.myshopify.com")!
+    expect(a).toMatchObject({ outcome: "converted", trialDays: 7 })
+    expect(a.resolvedAt?.toISOString()).toBe("2026-01-08T11:00:00.000Z")
+    expect(b.outcome).toBe("canceled")
+    expect(b.resolvedAt?.toISOString()).toBe("2026-01-05T09:00:00.000Z")
+  })
+
+  it("converts a trial when it ends with the subscription open, without waiting for a charge", () => {
+    const base = [ev("RELATIONSHIP_INSTALLED", "2026-02-01", "x.myshopify.com"), ev("SUBSCRIPTION_CREATED", "2026-02-08", "x.myshopify.com", monthly(2000, 7))]
+    expect(derive(base, NOW).trials[0].outcome).toBe("open")
+    const later = derive(base, at("2026-03-01"))
+    expect(later.trials[0]).toMatchObject({ outcome: "converted" })
+    expect(later.trials[0].resolvedAt?.toISOString()).toBe("2026-02-15T12:00:00.000Z")
+  })
+
+  it("converts early on a real charge before the trial's end, but not on a $0 one", () => {
+    const events = (amount: number) => [
+      ev("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"),
+      ev("SUBSCRIPTION_CREATED", "2026-01-01", "x.myshopify.com", monthly(2000, 14)),
+      ev("CHARGE_RECURRING", "2026-01-05", "x.myshopify.com", { amountCents: amount }),
+    ]
+    expect(derive(events(2000), NOW).trials[0].resolvedAt?.toISOString()).toBe("2026-01-05T12:00:00.000Z")
+    // A $0 charge changes nothing: it converts at the trial's end on 15 Jan.
+    expect(derive(events(0), NOW).trials[0].resolvedAt?.toISOString()).toBe("2026-01-15T12:00:00.000Z")
+  })
+
+  it("uses the trial days the merchant actually has left, not the plan's full trial", () => {
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", "x.myshopify.com", { ...monthly(2000, 14), trialDaysRemaining: 3 }),
+      ],
+      NOW,
+    )
+    expect(r.trials[0]).toMatchObject({ trialDays: 3, outcome: "converted" })
+    expect(r.trials[0].endsAt.toISOString()).toBe("2026-01-04T12:00:00.000Z")
+  })
+
+  it("gives no trial to a merchant with none left: they pay from the first day", () => {
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", "x.myshopify.com", { ...monthly(2000, 14), trialDaysRemaining: 0 }),
+      ],
+      NOW,
+    )
+    expect(r.trials).toHaveLength(0)
+    expect(r.daily[0]).toMatchObject({ activeSubs: 1, mrrCents: 2000, newSubs: 1 })
+  })
+
+  it("converts at once when a trial moves to a plan with no trial days left", () => {
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", "x.myshopify.com", monthly(1000, 14)),
+        ev("SUBSCRIPTION_UPDATED", "2026-01-05", "x.myshopify.com", { ...monthly(3000, null, "plus"), trialDaysRemaining: 0 }),
+      ],
+      NOW,
+    )
+    expect(r.trials[0].outcome).toBe("converted")
+    expect(dayOf(r, "2026-01-05")).toMatchObject({ newMrrCents: 3000, newSubs: 1, activeSubs: 1, mrrCents: 3000, trialSubs: 0 })
+    mrrAddsUp(r)
+  })
+})
+
+describe("daily rollup", () => {
+  it("has one row per day from the first event to today", () => {
+    expect(result.daily).toHaveLength(41)
+    expect(result.daily[0].date).toBe("2026-01-01")
+    expect(result.daily[40].date).toBe("2026-02-10")
+  })
+
+  it("counts a trial apart from paying subscribers on the day it starts", () => {
+    expect(day("2026-01-01")).toMatchObject({
+      installs: 1, trialsStarted: 1, newSubs: 0, newMrrCents: 0,
+      activeInstalls: 1, activeSubs: 0, mrrCents: 0, trialSubs: 1, trialMrrCents: 2000,
+    })
+  })
+
+  it("values a trial on a yearly plan at a twelfth of its price", () => {
+    expect(day("2026-01-02")).toMatchObject({ installs: 1, activeInstalls: 2, activeSubs: 0, trialSubs: 2, trialMrrCents: 4000 })
+  })
+
+  it("nets an install and an uninstall on the same day to nothing in the stock", () => {
+    expect(day("2026-01-03")).toMatchObject({ installs: 1, uninstalls: 1, activeInstalls: 2 })
+  })
+
+  it("counts an orphan uninstall as a flow but not against the stock", () => {
+    expect(day("2026-01-04")).toMatchObject({ uninstalls: 1, activeInstalls: 2 })
+  })
+
+  it("counts a cancel inside a trial as a canceled trial, not as churn", () => {
+    expect(day("2026-01-05")).toMatchObject({
+      trialsCanceled: 1, canceledSubs: 0, churnedMrrCents: 0, uninstalls: 1, activeInstalls: 1, activeSubs: 0, trialSubs: 1, trialMrrCents: 2000,
+    })
+  })
+
+  it("turns a trial into a paying subscriber, and new MRR, on the day it converts", () => {
+    expect(day("2026-01-08")).toMatchObject({ trialsConverted: 1, newSubs: 1, newMrrCents: 2000, chargedCents: 2000, activeSubs: 1, mrrCents: 2000, trialSubs: 0 })
+  })
+
+  it("counts a subscription with no trial as paying from its first day", () => {
+    expect(day("2026-01-10")).toMatchObject({ installs: 1, newSubs: 1, newMrrCents: 1000, activeInstalls: 2, activeSubs: 2, mrrCents: 3000 })
+  })
+
+  it("counts a return as a reinstall and as an install", () => {
+    expect(day("2026-01-12")).toMatchObject({ installs: 1, reinstalls: 1, activeInstalls: 3 })
+  })
+
+  it("treats a freeze as lost revenue and an unfreeze as revenue regained", () => {
+    expect(day("2026-01-15")).toMatchObject({ churnedMrrCents: 1000, canceledSubs: 1, activeSubs: 1, mrrCents: 2000 })
+    expect(day("2026-01-16")).toMatchObject({ newMrrCents: 1000, newSubs: 1, activeSubs: 2, mrrCents: 3000 })
+  })
+
+  it("books a plan change as expansion, not as churn plus new", () => {
+    expect(day("2026-01-20")).toMatchObject({ expansionMrrCents: 1000, contractionMrrCents: 0, churnedMrrCents: 0, newMrrCents: 0, mrrCents: 4000, activeSubs: 2 })
+  })
+
+  it("keeps payouts, refunds and credits apart from charges", () => {
+    expect(day("2026-01-11")).toMatchObject({ grossEarnedCents: 2000, netEarnedCents: 1700, feeCents: 300, chargedCents: 0 })
+    expect(day("2026-01-25")).toMatchObject({ refundedCents: 500, grossEarnedCents: -500, netEarnedCents: -425, feeCents: -75 })
+    expect(day("2026-01-26")).toMatchObject({ creditCents: 300 })
+  })
+
+  it("books a cancel and an uninstall on the last day as churn, once", () => {
+    expect(day("2026-02-05")).toMatchObject({ churnedMrrCents: 3000, canceledSubs: 1, uninstalls: 1, activeInstalls: 2, activeSubs: 1, mrrCents: 1000 })
+  })
+
+  it("ends on the right stocks", () => {
+    expect(day("2026-02-10")).toMatchObject({ activeInstalls: 2, activeSubs: 1, trialSubs: 0, mrrCents: 1000, trialMrrCents: 0 })
+  })
+
+  it("never lets a stock go negative", () => {
+    for (const d of result.daily) {
+      for (const key of ["activeInstalls", "activeSubs", "trialSubs", "mrrCents", "trialMrrCents"] as const) {
+        expect(d[key], `${d.date} ${key}`).toBeGreaterThanOrEqual(0)
+      }
+    }
+  })
+
+  it("adds up: every day's MRR is last day's plus new and expansion, minus contraction and churn", () => {
+    mrrAddsUp(result)
+  })
+})
+
+describe("cancellations that take effect later", () => {
+  const sub = [ev("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"), ev("SUBSCRIPTION_CREATED", "2026-01-01", "x.myshopify.com", monthly(2000))]
+
+  it("keeps a scheduled cancellation paying until its date, then counts the churn on that day", () => {
+    const r = derive([...sub, ev("SUBSCRIPTION_CANCELLATION_SCHEDULED", "2026-01-10", "x.myshopify.com", { cancelEffectiveOn: at("2026-01-31") })], NOW)
+    expect(dayOf(r, "2026-01-30")).toMatchObject({ activeSubs: 1, mrrCents: 2000, churnedMrrCents: 0 })
+    expect(dayOf(r, "2026-01-31")).toMatchObject({ activeSubs: 0, mrrCents: 0, churnedMrrCents: 2000, canceledSubs: 1 })
+    expect(r.subscriptions[0]).toMatchObject({ endReason: "canceled" })
+    expect(r.subscriptions[0].endedAt?.toISOString()).toBe("2026-01-31T00:00:00.000Z")
+    mrrAddsUp(r)
+  })
+
+  it("does the same for a cancel that says it takes effect later", () => {
+    const r = derive([...sub, ev("SUBSCRIPTION_CANCELED", "2026-01-10", "x.myshopify.com", { cancelEffectiveOn: at("2026-01-25") })], NOW)
+    expect(dayOf(r, "2026-01-10")).toMatchObject({ churnedMrrCents: 0, activeSubs: 1 })
+    expect(dayOf(r, "2026-01-25")).toMatchObject({ churnedMrrCents: 2000, activeSubs: 0 })
+  })
+
+  it("still counts as paying today when the date has not come yet", () => {
+    const r = derive([...sub, ev("SUBSCRIPTION_CANCELLATION_SCHEDULED", "2026-02-01", "x.myshopify.com", { cancelEffectiveOn: at("2026-03-01") })], NOW)
+    expect(r.daily.at(-1)).toMatchObject({ activeSubs: 1, mrrCents: 2000 })
+    expect(r.subscriptions[0].endedAt).toBeNull()
+  })
+
+  it("forgets a scheduled cancellation when the shop moves to another plan before it", () => {
+    const r = derive(
+      [
+        ...sub,
+        ev("SUBSCRIPTION_CANCELLATION_SCHEDULED", "2026-01-10", "x.myshopify.com", { cancelEffectiveOn: at("2026-01-31") }),
+        ev("SUBSCRIPTION_UPDATED", "2026-01-20", "x.myshopify.com", monthly(3000, null, "plus")),
+      ],
+      NOW,
+    )
+    expect(dayOf(r, "2026-01-31")).toMatchObject({ churnedMrrCents: 0, activeSubs: 1, mrrCents: 3000 })
+  })
+
+  it("counts a trial whose cancellation takes effect before it ends as a canceled trial, never paid", () => {
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", "x.myshopify.com", monthly(2000, 14)),
+        ev("SUBSCRIPTION_CANCELLATION_SCHEDULED", "2026-01-03", "x.myshopify.com", { cancelEffectiveOn: at("2026-01-10") }),
+      ],
+      NOW,
+    )
+    expect(r.trials[0].outcome).toBe("canceled")
+    expect(r.daily.every((d) => d.mrrCents === 0 && d.churnedMrrCents === 0)).toBe(true)
+  })
+})
+
+describe("plan changes Shopify reports as two events", () => {
+  const base = [ev("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"), ev("SUBSCRIPTION_CREATED", "2026-01-01", "x.myshopify.com", monthly(1000, null, "basic"))]
+
+  it("reads 'new plan created, old plan canceled' as one upgrade, and keeps the shop paying", () => {
+    const r = derive(
+      [
+        ...base,
+        ev("SUBSCRIPTION_CREATED", "2026-01-10T10:00:00Z", "x.myshopify.com", monthly(3000, null, "plus")),
+        ev("SUBSCRIPTION_CANCELED", "2026-01-10T10:01:00Z", "x.myshopify.com", monthly(1000, null, "basic")),
+      ],
+      NOW,
+    )
+    expect(dayOf(r, "2026-01-10")).toMatchObject({ expansionMrrCents: 2000, churnedMrrCents: 0, newMrrCents: 0, activeSubs: 1, mrrCents: 3000 })
+    expect(r.daily.at(-1)).toMatchObject({ activeSubs: 1, mrrCents: 3000 })
+    mrrAddsUp(r)
+  })
+
+  it("reads 'old plan canceled, new plan created' a few minutes later as one upgrade too", () => {
+    const r = derive(
+      [
+        ...base,
+        ev("SUBSCRIPTION_CANCELED", "2026-01-10T10:00:00Z", "x.myshopify.com", monthly(1000, null, "basic")),
+        ev("SUBSCRIPTION_CREATED", "2026-01-10T10:04:00Z", "x.myshopify.com", monthly(3000, null, "plus")),
+      ],
+      NOW,
+    )
+    expect(dayOf(r, "2026-01-10")).toMatchObject({ expansionMrrCents: 2000, churnedMrrCents: 0, newMrrCents: 0, canceledSubs: 0, activeSubs: 1, mrrCents: 3000 })
+    expect(r.subscriptions.map((s) => s.endReason)).toEqual(["replaced", null])
+    mrrAddsUp(r)
+  })
+
+  it("reads both at the same instant as one plan change, whatever order they come in", () => {
+    const r = derive(
+      [
+        ...base,
+        ev("SUBSCRIPTION_CREATED", "2026-01-10T10:00:00Z", "x.myshopify.com", monthly(500, null, "lite")),
+        ev("SUBSCRIPTION_CANCELED", "2026-01-10T10:00:00Z", "x.myshopify.com", monthly(1000, null, "basic")),
+      ],
+      NOW,
+    )
+    expect(dayOf(r, "2026-01-10")).toMatchObject({ contractionMrrCents: 500, churnedMrrCents: 0, activeSubs: 1, mrrCents: 500 })
+  })
+
+  it("counts a cancel, then a new subscription much later, as churn and a new sale", () => {
+    const r = derive(
+      [
+        ...base,
+        ev("SUBSCRIPTION_CANCELED", "2026-01-10T10:00:00Z", "x.myshopify.com"),
+        ev("SUBSCRIPTION_CREATED", "2026-01-12T10:00:00Z", "x.myshopify.com", monthly(3000, null, "plus")),
+      ],
+      NOW,
+    )
+    expect(dayOf(r, "2026-01-10")).toMatchObject({ churnedMrrCents: 1000, canceledSubs: 1, activeSubs: 0 })
+    expect(dayOf(r, "2026-01-12")).toMatchObject({ newMrrCents: 3000, newSubs: 1, activeSubs: 1 })
+  })
+
+  it("honors a cancel of the current plan, even right after it began", () => {
+    const r = derive(
+      [
+        ...base,
+        ev("SUBSCRIPTION_CREATED", "2026-01-10T10:00:00Z", "x.myshopify.com", monthly(3000, null, "plus")),
+        ev("SUBSCRIPTION_CANCELED", "2026-01-10T10:02:00Z", "x.myshopify.com", monthly(3000, null, "plus")),
+      ],
+      NOW,
+    )
+    expect(r.daily.at(-1)).toMatchObject({ activeSubs: 0, mrrCents: 0 })
+  })
+
+  it("honors a cancel that names no plan, since it cannot be told apart", () => {
+    const r = derive([...base, ev("SUBSCRIPTION_CREATED", "2026-01-10T10:00:00Z", "x.myshopify.com", monthly(3000, null, "plus")), ev("SUBSCRIPTION_CANCELED", "2026-01-10T10:01:00Z", "x.myshopify.com")], NOW)
+    expect(r.daily.at(-1)).toMatchObject({ activeSubs: 0 })
+  })
+
+  it("keeps a trial going through a plan change made by cancel and resubscribe", () => {
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", "x.myshopify.com", monthly(1000, 14, "basic")),
+        ev("SUBSCRIPTION_CANCELED", "2026-01-05T10:00:00Z", "x.myshopify.com", monthly(1000, null, "basic")),
+        ev("SUBSCRIPTION_CREATED", "2026-01-05T10:03:00Z", "x.myshopify.com", { ...monthly(3000, null, "plus"), trialDaysRemaining: 10 }),
+      ],
+      NOW,
+    )
+    expect(r.trials).toHaveLength(1)
+    expect(r.trials[0].outcome).toBe("converted")
+    expect(dayOf(r, "2026-01-15")).toMatchObject({ newMrrCents: 3000, activeSubs: 1, trialsConverted: 1 })
+    expect(r.daily.every((d) => d.churnedMrrCents === 0)).toBe(true)
+    mrrAddsUp(r)
+  })
+})
+
+describe("edge cases", () => {
+  it("returns nothing for no events", () => {
+    expect(derive([], NOW)).toEqual({ installs: [], subscriptions: [], trials: [], daily: [], orphanUninstalls: 0 })
+  })
+
+  it("orders events on the same instant: install, then subscription, then uninstall", () => {
+    const r = derive(
+      [
+        ev("RELATIONSHIP_UNINSTALLED", "2026-01-01T10:00:00Z", "x.myshopify.com"),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01T10:00:00Z", "x.myshopify.com", monthly(1000)),
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01T10:00:00Z", "x.myshopify.com"),
+      ],
+      NOW,
+    )
+    expect(r.installs).toHaveLength(1)
+    expect(r.installs[0].uninstalledAt).not.toBeNull()
+    expect(r.subscriptions[0].endReason).toBe("uninstalled")
+    expect(r.orphanUninstalls).toBe(0)
+  })
+
+  it("treats a move to a free plan as churn, and a move off one as new revenue", () => {
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", "x.myshopify.com", monthly(2000)),
+        ev("SUBSCRIPTION_UPDATED", "2026-01-10", "x.myshopify.com", { ...monthly(0), planHandle: "free" }),
+        ev("SUBSCRIPTION_UPDATED", "2026-01-20", "x.myshopify.com", monthly(2000)),
+      ],
+      NOW,
+    )
+    expect(dayOf(r, "2026-01-10")).toMatchObject({ churnedMrrCents: 2000, canceledSubs: 1, mrrCents: 0, activeSubs: 0 })
+    expect(dayOf(r, "2026-01-20")).toMatchObject({ newMrrCents: 2000, newSubs: 1, mrrCents: 2000, activeSubs: 1 })
+    mrrAddsUp(r)
+  })
+
+  it("books a downgrade as contraction", () => {
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", "x.myshopify.com", monthly(3000)),
+        ev("SUBSCRIPTION_UPDATED", "2026-01-10", "x.myshopify.com", monthly(1000)),
+      ],
+      NOW,
+    )
+    expect(dayOf(r, "2026-01-10")).toMatchObject({ contractionMrrCents: 2000, churnedMrrCents: 0, mrrCents: 1000 })
+  })
+
+  it("reads a second 'created' on an open subscription as a plan change", () => {
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", "x.myshopify.com", monthly(1000)),
+        ev("SUBSCRIPTION_CREATED", "2026-01-05", "x.myshopify.com", monthly(2000)),
+      ],
+      NOW,
+    )
+    expect(dayOf(r, "2026-01-05")).toMatchObject({ expansionMrrCents: 1000, newMrrCents: 0, activeSubs: 1, mrrCents: 2000 })
+  })
+
+  it("does not count a $0 subscription as a subscriber", () => {
+    const r = derive([ev("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"), ev("SUBSCRIPTION_CREATED", "2026-01-01", "x.myshopify.com", monthly(0))], NOW)
+    expect(r.daily[0]).toMatchObject({ activeSubs: 0, mrrCents: 0, newSubs: 0 })
+  })
+
+  it("uninstalling ends the subscription, and ends a trial in progress as canceled, never paid", () => {
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", "x.myshopify.com", monthly(2000, 14)),
+        ev("RELATIONSHIP_UNINSTALLED", "2026-01-03", "x.myshopify.com"),
+      ],
+      NOW,
+    )
+    expect(r.subscriptions[0]).toMatchObject({ endReason: "uninstalled" })
+    expect(r.trials[0].outcome).toBe("canceled")
+    expect(dayOf(r, "2026-01-03")).toMatchObject({ churnedMrrCents: 0, activeSubs: 0, trialSubs: 0, trialsCanceled: 1 })
+  })
+
+  it("opens a subscription whose creation was before the history from its first update, and keeps a trial Shopify says is running", () => {
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"),
+        ev("SUBSCRIPTION_UPDATED", "2026-01-05", "x.myshopify.com", { ...monthly(2000), trialDaysRemaining: 4 }),
+      ],
+      NOW,
+    )
+    expect(r.subscriptions).toHaveLength(1)
+    expect(r.trials[0]).toMatchObject({ trialDays: 4, outcome: "converted" })
+    expect(dayOf(r, "2026-01-08")).toMatchObject({ activeSubs: 0, trialSubs: 1 })
+    expect(dayOf(r, "2026-01-09")).toMatchObject({ activeSubs: 1, newMrrCents: 2000 })
+  })
+
+  it("puts an event dated after now on the last day instead of losing it", () => {
+    const r = derive([ev("RELATIONSHIP_INSTALLED", "2026-03-01", "x.myshopify.com")], NOW)
+    expect(r.daily).toHaveLength(1)
+    expect(r.daily[0].installs).toBe(1)
+  })
+
+  it("does not choke on events with no shop", () => {
+    const r = derive([ev("CHARGE_RECURRING", "2026-01-01", null, { amountCents: 500 })], NOW)
+    expect(r.daily[0].chargedCents).toBe(500)
+    expect(r.installs).toHaveLength(0)
+  })
+})
