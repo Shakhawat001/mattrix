@@ -59,16 +59,25 @@ If the dashboard shows "Invalid Server Actions request" after you put it behind 
 
 ## 5. Deploy on Coolify
 
-1. Create a new resource from your Git repository and choose the **Docker Compose** build pack. Leave the compose file as `/compose.yaml`.
-2. Add the environment variables from your `.env` in the resource's environment settings. The required ones are marked in `.env.example`.
-3. Open the `web` service and give it a domain, with port `3000`. Coolify's proxy issues the certificate. Do not give `db` or `worker` a domain.
-4. Deploy. Watch the `web` container's log: it starts, or it stops at once with a plain list of what is wrong with the environment (`docker compose run --rm web node dist/cli.mjs check-env` prints the same list).
+Use `compose.coolify.yaml`. It runs the same services as `compose.yaml`, but Coolify generates every secret, so you skip step 2.
 
-Everything else (the database volume, restarts) is in `compose.yaml`. Back up the `db-data` volume.
+1. Create a new resource from your Git repository and choose the **Docker Compose** build pack. Set the compose file (Docker Compose Location) to `/compose.coolify.yaml`.
+2. Coolify generates the database password, the session secret, the encryption key and your login. The one variable you may change is `PROXY_HOPS`: leave it at 1, or set 2 when Cloudflare proxies the domain.
+3. Open the `web` service and give it a domain, with port `3000`. Coolify's proxy issues the certificate. Do not give `db` or `worker` a domain.
+4. Deploy. Watch the `web` container's log: it starts, or it stops at once with a plain list of what is wrong with the environment.
+5. Under **Environment Variables**, read your login: `SERVICE_LOWERCASEUSER_DASHBOARD` is the username and `SERVICE_PASSWORD_DASHBOARD` the password. Copy `SERVICE_REALBASE64_32_ENCRYPTION` into your password manager: without it the stored Partner API tokens cannot be read.
+
+Things to know:
+
+- Coolify cannot make a password hash, so the login password sits in Coolify as it is and is hashed when the app starts. To keep only a hash, use `/compose.yaml` and set the variables from your `.env` yourself.
+- If the app stops with an `ENCRYPTION_KEY` error, your Coolify is too old to generate that value. Paste a key from `generate-secrets` into `SERVICE_REALBASE64_32_ENCRYPTION`.
+- Switching compose files after a deploy gives the database a new password, but Postgres keeps the old one in its volume. Before any data matters, delete the `db-data` volume and deploy again.
+
+Everything else (the database volume, restarts) is in the compose file. Back up the `db-data` volume.
 
 ## 6. Sign in and connect Shopify
 
-Open your domain and sign in with `DASHBOARD_USER` and your password.
+Open your domain and sign in with your username and password (on Coolify, the two values from step 5).
 
 The dashboard reads Shopify through the **Partner API**, with one token for your whole Partner organization. Create it in your Partner organization's settings: a Partner API client, with only the permission that lets it read your apps and their events (at the time of writing it is called "Manage apps"; this dashboard sends only read queries). Copy its token. Shopify's own Partner API documentation on shopify.dev has the current steps.
 

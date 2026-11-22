@@ -1,6 +1,7 @@
 # AppMetrics: the dashboard (web), the background reader (worker) and its database (db).
 #
-# Deploy on Coolify, or anywhere Docker Compose runs: copy .env.example to .env, fill it
+# On Coolify, use compose.coolify.yaml instead: Coolify then makes the secrets itself.
+# Anywhere else Docker Compose runs: copy .env.example to .env, fill it
 # in, then `docker compose up -d --build`. The steps are in docs/SELF_HOSTING.md.
 #
 # Nothing is published to the host. Put a reverse proxy in front of `web` (Coolify does this

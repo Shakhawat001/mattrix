@@ -19,4 +19,5 @@ AppMetrics is a self-hosted, read-only metrics dashboard for Shopify app develop
 - Rates such as churn and retention look at the shops that were there at the start of the range (`getRetention`), never at flows divided by a starting stock.
 - Never print or log a token, a password or a session. The Partner API is read-only: queries, never mutations.
 - Chart colors are the eight `--series-N` hues in `app/globals.css`, in that order, one per thing (an app keeps its color when others are filtered out). Do not add a ninth.
+- `compose.coolify.yaml` is `compose.yaml` with Coolify's generated secrets. A change to one compose file goes into both.
 - Plain, direct English in the UI, docs and commits. No em dashes.
