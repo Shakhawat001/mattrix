@@ -37,6 +37,17 @@ describe("RateLimiter", () => {
     expect(limiter.take("b", T0).allowed).toBe(true)
   })
 
+  it("takes as many places as a request costs, all of them or none", () => {
+    const limiter = new RateLimiter(5, 60_000)
+    expect(limiter.take("token", T0, 3)).toEqual({ allowed: true })
+    // Two of the three at T0 would have to leave first: they do at T0 + 60s.
+    expect(limiter.take("token", T0 + 1000, 4)).toEqual({ allowed: false, retryAfterSeconds: 59 })
+    expect(limiter.take("token", T0 + 1000, 2)).toEqual({ allowed: true })
+    expect(limiter.take("token", T0 + 2000)).toEqual({ allowed: false, retryAfterSeconds: 58 })
+    // More than the limit never fits.
+    expect(new RateLimiter(5, 60_000).take("token", T0, 6)).toEqual({ allowed: false, retryAfterSeconds: 60 })
+  })
+
   it("never asks to wait less than a second", () => {
     const limiter = new RateLimiter(1, 60_000)
     limiter.take("token", T0)

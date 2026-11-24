@@ -312,6 +312,26 @@ describe.skipIf(!hasDatabase)("MCP endpoint (Postgres)", () => {
       // Refused requests are not logged, so a runaway agent cannot fill the table.
       expect((await calls()).filter((r) => r.tokenId === id)).toHaveLength(120)
     })
+
+    it("counts each message of a batch, which clients on the 2025-03-26 revision may send", async () => {
+      const { token: value } = await token()
+      const batch = (size: number) =>
+        new Request("http://localhost/api/mcp", {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${value}` },
+          body: JSON.stringify(Array.from({ length: size }, (_, i) => ({ jsonrpc: "2.0", id: i + 1, method: "tools/list" }))),
+        })
+      // One request that runs 100: without counting them, a batch would multiply the limit by 100.
+      const answered = await POST(batch(100))
+      expect(answered.status).toBe(200)
+      expect((await answered.text()).match(/"tools":\[/g)).toHaveLength(100)
+
+      for (let i = 0; i < 20; i++) expect((await send(rpc("tools/list", undefined, { token: value }))).status).toBe(200)
+      expect((await send(rpc("tools/list", undefined, { token: value }))).status).toBe(429)
+      const refused = await POST(batch(2))
+      expect(refused.status).toBe(429)
+      expect(Number(refused.headers.get("retry-after"))).toBeGreaterThanOrEqual(1)
+    })
   })
 
   describe("shops given as input", () => {

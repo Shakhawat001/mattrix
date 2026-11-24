@@ -139,7 +139,7 @@ Every answer is JSON in the same shape: `range` (when the tool has one), `timezo
 ## Limits
 
 - Each tool reads in a read-only database transaction, and a query that runs longer than 15 seconds is stopped.
-- 120 requests a minute per token. Past that the endpoint answers 429 with a `Retry-After` header.
+- 120 requests a minute per token. Past that the endpoint answers 429 with a `Retry-After` header. A batch of JSON-RPC messages, which only clients on the 2025-03-26 revision send, counts each message as a request.
 - Every request a token makes is written to a call log in the database (the tool or method, whether it succeeded, how long it took), kept for 30 days. Requests refused by the rate limit are not, so a runaway agent cannot fill the table. The token itself is never logged.
 - A request sent by a web page (one with an `Origin` header) is refused. Agents such as OpenCode and Claude Code do not send one.
 

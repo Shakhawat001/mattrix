@@ -13,7 +13,8 @@ import { errorCause, mcpHandler, toAuthInfo } from "./server"
 //      this, and the MCP spec asks servers to refuse origins they do not expect.
 //   2. The bearer token is checked, which also records its last use (lib/mcp/auth.ts).
 //   3. The token's rate limit (lib/mcp/rate-limit.ts).
-//   4. The body is read, at most 1 MiB, and parsed, so the call log can say what was asked.
+//   4. The body is read, at most 1 MiB, and parsed, so the call log can say what was asked. A batch
+//      takes a place in the rate limit for each of its messages.
 //   5. The SDK answers it with a server built for this request (lib/mcp/server.ts). Tools read
 //      only through ctx.read(), a read-only transaction.
 //   6. The call goes in the call log (api_calls), on the pool, outside any read-only transaction.
@@ -36,7 +37,8 @@ export async function handleMcpRequest(request: Request, deps: McpDeps): Promise
     if (!gate.ok) return gate.response
     const tokenId = gate.caller.id
 
-    const limit = (deps.limiter ?? mcpRateLimiter).take(tokenId, now.getTime())
+    const limiter = deps.limiter ?? mcpRateLimiter
+    const limit = limiter.take(tokenId, now.getTime())
     if (!limit.allowed) return tooManyRequests(limit.retryAfterSeconds)
 
     const logged = async (tool: string, ok: boolean, response: Response): Promise<Response> => {
@@ -55,6 +57,12 @@ export async function handleMcpRequest(request: Request, deps: McpDeps): Promise
       body = JSON.parse(read.text)
     } catch {
       return logged("invalid", false, jsonRpcError(400, -32700, "Parse error: the request body is not JSON."))
+    }
+    // A batch, which only clients on the 2025-03-26 revision send, runs each of its messages, so
+    // each takes a place. One refused here has used the place taken above, before its size was known.
+    if (Array.isArray(body) && body.length > 1) {
+      const more = limiter.take(tokenId, now.getTime(), body.length - 1)
+      if (!more.allowed) return tooManyRequests(more.retryAfterSeconds)
     }
 
     const call = describeCall(body)

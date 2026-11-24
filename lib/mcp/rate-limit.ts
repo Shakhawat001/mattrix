@@ -16,14 +16,17 @@ export class RateLimiter {
     readonly windowMs: number = WINDOW_MS
   ) {}
 
-  take(key: string, now: number = Date.now()): RateDecision {
+  /** Takes `cost` places (a batch takes one for each of its messages): all of them, or none. */
+  take(key: string, now: number = Date.now(), cost = 1): RateDecision {
     const recent = (this.hits.get(key) ?? []).filter((at) => at > now - this.windowMs)
-    if (recent.length >= this.limit) {
+    if (recent.length + cost > this.limit) {
       this.hits.set(key, recent)
-      // A place frees up when the oldest request in the window leaves it.
-      return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((recent[0] + this.windowMs - now) / 1000)) }
+      // Enough places free up when the oldest requests in the window leave it. A cost over the limit never fits.
+      const leaving = recent[recent.length + cost - this.limit - 1]
+      const freeAt = leaving === undefined ? now + this.windowMs : leaving + this.windowMs
+      return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((freeAt - now) / 1000)) }
     }
-    recent.push(now)
+    for (let i = 0; i < cost; i++) recent.push(now)
     this.hits.set(key, recent)
     return { allowed: true }
   }
