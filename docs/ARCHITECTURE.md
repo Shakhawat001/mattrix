@@ -29,6 +29,8 @@ Everything can be rebuilt from the first layer.
 
 The dashboard's numbers come from layer 3, except the ones that need to know about individual shops (retention of the starting group, install and revenue cohorts, win-back, shop list, plan mix, trials, uninstall reasons), which read layer 2.
 
+Three reads serve the pages and AI agents alike. Each takes a database handle or a transaction and returns plain data: one shop's timeline (`lib/analytics/shop-timeline.ts`), how complete the data is (`data-health.ts`), and the shops behind each MRR movement (`mrr-movers.ts`). The last applies the rollup's own rules to the subscription periods, so its amounts add up to the rollup's new, expansion, contraction and churned MRR for any range. A test holds the two side by side.
+
 ## Syncing
 
 `lib/partner/sync.ts` reads events in windows of at most 300 days, oldest first, with a three-day overlap so nothing at a window's edge is missed. Duplicates are harmless because events are stored by id. The watermark (where to resume) moves only after a window has been stored completely, so a crash in the middle repeats work and never skips it.
@@ -60,7 +62,8 @@ The chart code follows three rules: color follows the thing it stands for (an ap
 ```
 app/            routes: (auth)/login, (app)/ for everything behind the login, api/
 components/     ui/ (shadcn), app/ (shell, filters, tiles), charts/, settings/
-lib/analytics/  derive, rebuild, aggregate, queries, matrix, view builders, metric registry
+lib/analytics/  derive, rebuild, aggregate, queries, matrix, view builders, metric registry,
+                shop timeline, data health, MRR movers
 lib/partner/    query, client, parse, sync, store
 lib/auth/       password, sessions, API tokens, rate limit, cookies, the data access layer
 lib/db/         schema, client, migrations runner

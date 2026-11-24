@@ -1,9 +1,12 @@
-import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js"
+import type { PgDatabase } from "drizzle-orm/pg-core"
+import { drizzle, type PostgresJsDatabase, type PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js"
 import postgres, { type Sql } from "postgres"
 import { getEnv } from "@/lib/env"
 import * as schema from "./schema"
 
 export type Db = PostgresJsDatabase<typeof schema>
+/** The pool or a transaction on it, so a read can run inside a caller's transaction. */
+export type Queryable = PgDatabase<PostgresJsQueryResultHKT, typeof schema>
 export type Database = { sql: Sql; db: Db; close: () => Promise<void> }
 
 /** Opens a pool. The app, the worker and the tests each make their own. */

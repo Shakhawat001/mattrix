@@ -84,7 +84,7 @@ What we build next, in order. Written 24 November 2026. Tick an item in the same
 
 ### 2.1 Data for agents
 
-- [ ] Shared reads the MCP and the pages both use: one shop's timeline, data health, and the shops behind each MRR movement.
+- [x] Shared reads the MCP and the pages both use: one shop's timeline, data health, and the shops behind each MRR movement.
 
 ### 2.2 API tokens
 
