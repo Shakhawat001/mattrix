@@ -121,7 +121,16 @@ describe("the tools", () => {
       expect(tool.title.length).toBeGreaterThan(0)
       expect(tool.description.length).toBeGreaterThan(50)
       expect(tool.description).not.toMatch(/[—–]/)
-      expect(tool.input.safeParse({}).success).toBe(true)
+      for (const field of Object.values(tool.input.shape)) expect(field.description, tool.name).toBeTruthy()
+    }
+  })
+
+  it("need no input but a shop timeline's app and shop: every other field has a default", () => {
+    for (const tool of TOOLS) {
+      const required = Object.entries(tool.input.shape)
+        .filter(([, field]) => !field.safeParse(undefined).success)
+        .map(([name]) => name)
+      expect(required, tool.name).toEqual(tool.name === "get_shop_timeline" ? ["app_id", "shop"] : [])
     }
   })
 })

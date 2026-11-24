@@ -1,3 +1,4 @@
+import { reasonLabel } from "@/lib/analytics/labels"
 import type { MetricFormat } from "@/lib/analytics/metrics-registry"
 import type { Range } from "@/lib/analytics/range"
 import { hmacHex } from "@/lib/crypto"
@@ -65,6 +66,17 @@ export function metricValue(value: number | null | undefined, format: MetricForm
 
 /** An instant as ISO 8601 in UTC, or null. */
 export const instant = (date: Date | null | undefined): string | null => (date ? date.toISOString() : null)
+
+/** Shopify's billing period as the dashboard says it: yearly for ANNUAL, monthly for any other. Null when there is none. */
+export const billing = (period: string | null): "yearly" | "monthly" | null => (period === null ? null : period === "ANNUAL" ? "yearly" : "monthly")
+
+/** Shopify's comma-separated uninstall reason codes as the dashboard words them: ["Too expensive", "App not working"]. Codes from Shopify's survey, not merchant text. */
+export const reasonLabels = (reason: string | null): string[] =>
+  (reason ?? "")
+    .split(",")
+    .map((r) => r.trim())
+    .filter(Boolean)
+    .map(reasonLabel)
 
 /** Caveats several tools share. A tool adds its own as plain sentences. */
 export const NOTES = {

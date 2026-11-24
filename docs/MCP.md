@@ -1,6 +1,6 @@
 # AI agents (MCP)
 
-AppMetrics serves its numbers to AI agents over the [Model Context Protocol](https://modelcontextprotocol.io) at `/api/mcp`, on the same web container as the dashboard. Connect OpenCode, Claude Code or any other MCP client, and ask it about your installs, revenue and churn.
+AppMetrics serves its numbers to AI agents over the [Model Context Protocol](https://modelcontextprotocol.io) at `/api/mcp`, on the same web container as the dashboard. Connect OpenCode, Claude Code, Cursor, Codex or any other MCP client, and ask it about your installs, revenue and churn.
 
 It is read-only. An agent can read the numbers the dashboard shows and nothing else: it cannot change data, and it never reaches Shopify. The endpoint speaks MCP revision 2026-07-28 (stateless Streamable HTTP, built on the official TypeScript SDK v2), and also serves clients that still use the 2025 revisions.
 
@@ -56,6 +56,41 @@ claude mcp add --transport http --scope user appmetrics https://<your host>/api/
 
 The single quotes keep `${APPMETRICS_TOKEN}` as written: Claude Code reads the variable each time it connects, so the token is not saved in `~/.claude.json`. Leave out `--scope user` to add the server to the current project only. Run `claude mcp list`, or `/mcp` inside Claude Code, to check that it is connected.
 
+### Cursor
+
+Add the server to `~/.cursor/mcp.json` for every project, or to `.cursor/mcp.json` in one project:
+
+```json
+{
+  "mcpServers": {
+    "appmetrics": {
+      "url": "https://<your host>/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${env:APPMETRICS_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+Cursor fills in `${env:APPMETRICS_TOKEN}` from your environment, so the token stays out of the file. Check under **Customize** in the sidebar that the server is on and lists its tools; connection errors are in the Output panel, under MCP Logs. Cursor's hosted Cloud Agents do not read this file.
+
+### Codex
+
+```bash
+codex mcp add appmetrics --url https://<your host>/api/mcp --bearer-token-env-var APPMETRICS_TOKEN
+```
+
+This writes the server to `~/.codex/config.toml`, which the Codex CLI, the IDE extension and the ChatGPT desktop app share. You can also write it there by hand:
+
+```toml
+[mcp_servers.appmetrics]
+url = "https://<your host>/api/mcp"
+bearer_token_env_var = "APPMETRICS_TOKEN"
+```
+
+Codex reads the token from `APPMETRICS_TOKEN` when it connects, so it is not saved in the file. Run `codex mcp list`, or `/mcp` in a session, to check that it is connected.
+
 ### Any client, by hand (curl)
 
 ```bash
@@ -82,10 +117,21 @@ curl https://<your host>/api/mcp \
 
 | Tool | What it returns |
 | --- | --- |
-| `list_apps` | Every app that is not hidden, with the ids the other tools take, the first and last event Shopify reported, and when its numbers were last rebuilt. For each Partner connection: the last sync, the last sync error, and whether its token can read earnings. |
-| `get_definitions` | What every number means: the conventions and every metric's definition, from the same registry as the dashboard's tooltips and [METRICS.md](METRICS.md). Or one metric, by its id. |
+| `list_apps` | The apps that are not hidden, with the ids the other tools take, and each connection's last sync, its errors and whether its token can read earnings. |
+| `get_definitions` | What every number means: the conventions and each metric's definition, from the registry behind the dashboard's tooltips and [METRICS.md](METRICS.md). |
+| `get_metrics` | Any metric for a range, optionally compared with the period or the year before: value, previous value, change and definition. |
+| `get_timeseries` | Chosen metrics by day, week or month across a range, for the apps together or each app on its own. |
+| `explain_mrr_change` | MRR at the start and end of a range, the new, expansion, contraction and churned MRR between them, and the largest moves behind each, by shop. |
+| `get_churn` | Churn numbers and their split by cause, uninstall reasons, merchants' comments, how long installs lasted, and win-back. |
+| `get_trials` | The trial numbers for a range, what became of the trials that started in it, and the open trials ending soonest. |
+| `get_retention` | Revenue retention and churn rates with the starting group behind them, install cohorts and revenue cohorts. |
+| `list_shops` | Every shop with its status, plan, MRR and all it was charged, filtered, sorted and paged, at most 100 a page. |
+| `get_shop_timeline` | One shop in one app: where it stands, its totals, every stay, subscription period and trial, and its latest events. |
+| `get_data_health` | How complete the data is: events by type and month, signs of gaps, each connection's syncs, and how many apps are hidden. |
 
-The resource `appmetrics://definitions` holds the same definitions as markdown. More tools are on the way: see [ROADMAP.md](ROADMAP.md), section 2.3.
+The resource `appmetrics://definitions` holds the same definitions as markdown. Still to come: `list_events`, and `get_at_risk` and `list_annotations` once those features land (see [ROADMAP.md](ROADMAP.md), section 2.3).
+
+Tools with a range take a `preset` (such as `last_30_days`, the default) or `from` and `to` (UTC days, both included), and `app_ids` (default: every app that is not hidden, together). Their numbers equal the dashboard's for the same apps and range. Lists are capped, and each tool's description says where.
 
 Every answer is JSON in the same shape: `range` (when the tool has one), `timezone` (always `"UTC"`), `notes` with the caveats to read first (demo data, a failed sync, earnings that cannot be read, where history starts), then `data`. Money comes as `{ cents, formatted }`, a percentage as `{ ratio, formatted }`, where `formatted` is what the dashboard shows. A figure with nothing to divide by is `null`, never 0. Apps hidden in Settings are left out, as on the dashboard. Text that merchants wrote, such as uninstall comments, only ever appears in fields named `merchant_text_untrusted`, and agents are told to treat it as data, not instructions.
 
@@ -103,6 +149,6 @@ If a client cannot connect: 401 means the token is missing, mistyped, revoked or
 Whatever a tool returns goes to the AI provider your agent runs on. Shopify's [API License and Terms of Use](https://www.shopify.com/legal/api-terms) (section 2.3, as updated October 7, 2026) forbid using information derived from Shopify's APIs, including anonymous, aggregate or derived data, to create, train, fine tune or improve machine learning or AI models. Every number here comes from the Partner API, so:
 
 - Connect AI accounts that do not train on your data. Check your provider's data settings and terms before you connect one.
-- Tick **Hide shop domains** on the token if you prefer the provider not to see your shops' addresses. The agent still sees the numbers, a stable alias for each shop, and what merchants wrote, with any myshopify.com address in it replaced by its alias.
+- Tick **Hide shop domains** on the token if you prefer the provider not to see your shops' addresses. The agent still sees the numbers, a stable alias for each shop, and what merchants wrote, with any myshopify.com address in it replaced by its alias. It gives the alias back to look a shop up, and cannot search or sort shops by domain.
 
 The same terms also limit passing data from Shopify to third parties (sections 2.1 and 6.2). Read them for your own case; this page is not legal advice.

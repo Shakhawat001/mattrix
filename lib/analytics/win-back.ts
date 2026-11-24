@@ -1,5 +1,5 @@
 import { sql, type SQL } from "drizzle-orm"
-import type { Db } from "@/lib/db/client"
+import type { Queryable } from "@/lib/db/client"
 import { parseTimestamp } from "@/lib/db/timestamps"
 import { toMs, type Range } from "./range"
 
@@ -35,7 +35,7 @@ export type WinBack = {
 
 export const noWinBack = (): WinBack => ({ left: 0, returned: 0, rate: null, medianDays: null, recent: [] })
 
-export async function getWinBack(db: Db, appIds: string[], range: Range, limit = 10): Promise<WinBack> {
+export async function getWinBack(db: Queryable, appIds: string[], range: Range, limit = 10): Promise<WinBack> {
   if (appIds.length === 0) return noWinBack()
 
   // One row per shop that left in the range: when it first left, and its next install after that.

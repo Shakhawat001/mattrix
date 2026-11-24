@@ -1,5 +1,5 @@
 import { sql, type SQL } from "drizzle-orm"
-import type { Db } from "@/lib/db/client"
+import type { Queryable } from "@/lib/db/client"
 import { addDays, nextBucket, todayUtc, toMs, type Range } from "./range"
 
 // Revenue cohorts: the shops that first started paying in each month, and how much of what they
@@ -71,7 +71,7 @@ export function revenueCohortRows(starts: CohortStart[], held: CohortHeld[], tod
  * what each shop paid when it first started paying; the MRR at the end of a month is what the
  * same shops pay at the last instant of it, read the way getRetention reads the end of a range.
  */
-export async function getRevenueCohorts(db: Db, appIds: string[], range: Range, now: Date = new Date(), periods = 12): Promise<RevenueCohortRow[]> {
+export async function getRevenueCohorts(db: Queryable, appIds: string[], range: Range, now: Date = new Date(), periods = 12): Promise<RevenueCohortRow[]> {
   if (appIds.length === 0) return []
   const today = todayUtc(now)
 

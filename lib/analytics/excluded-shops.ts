@@ -1,5 +1,5 @@
 import { asc, eq } from "drizzle-orm"
-import type { Db } from "@/lib/db/client"
+import type { Db, Queryable } from "@/lib/db/client"
 import { apps, excludedShops } from "@/lib/db/schema"
 
 // Shops left out of every number: your own development stores, test installs, Shopify's review
@@ -29,7 +29,7 @@ export function normalizeShop(input: string): string | null {
 
 export type ExcludedShop = { shop: string; note: string | null; createdAt: Date }
 
-export async function listExcludedShops(db: Db): Promise<ExcludedShop[]> {
+export async function listExcludedShops(db: Queryable): Promise<ExcludedShop[]> {
   return db
     .select({ shop: excludedShops.shop, note: excludedShops.note, createdAt: excludedShops.createdAt })
     .from(excludedShops)

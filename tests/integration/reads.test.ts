@@ -1,9 +1,10 @@
 import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
-import { sumFlows } from "@/lib/analytics/aggregate"
+import { stocksAt, sumFlows } from "@/lib/analytics/aggregate"
 import { getDataHealth } from "@/lib/analytics/data-health"
 import { addExcludedShop } from "@/lib/analytics/excluded-shops"
 import { getMrrMovers, type MrrMove } from "@/lib/analytics/mrr-movers"
+import { getOpenTrials } from "@/lib/analytics/open-trials"
 import { getDayRows, listApps } from "@/lib/analytics/queries"
 import { addDays, type Range } from "@/lib/analytics/range"
 import { rebuildStaleApps } from "@/lib/analytics/rebuild"
@@ -550,6 +551,60 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
         const s4 = moves.find((m) => m.shop === "s4.myshopify.com" && m.kind === "churned")!
         expect(s4.date).toBe(addDays(today, -10))
       })
+    })
+  })
+
+  describe("the open trials", () => {
+    // At NOW (2026-02-10T12:00Z): three trials of paid plans are running, one of them moved to another
+    // plan during its trial. One trial converted, one was canceled, and one is on a free plan.
+    const trialHistory = (): ParsedEvent[] => [
+      pe("RELATIONSHIP_INSTALLED", "2026-02-05T10:00:00Z", "t1.myshopify.com"),
+      pe("SUBSCRIPTION_CREATED", "2026-02-05T10:00:00Z", "t1.myshopify.com", monthly(2000, 14)),
+      pe("RELATIONSHIP_INSTALLED", "2026-02-01T09:00:00Z", "t2.myshopify.com"),
+      pe("SUBSCRIPTION_CREATED", "2026-02-01T09:00:00Z", "t2.myshopify.com", monthly(1000, 14, "basic")),
+      pe("SUBSCRIPTION_UPDATED", "2026-02-06", "t2.myshopify.com", monthly(3000, null, "plus")),
+      pe("RELATIONSHIP_INSTALLED", "2026-01-10", "t3.myshopify.com"),
+      pe("SUBSCRIPTION_CREATED", "2026-01-10", "t3.myshopify.com", monthly(2500, 7)),
+      pe("RELATIONSHIP_INSTALLED", "2026-02-03", "t4.myshopify.com"),
+      pe("SUBSCRIPTION_CREATED", "2026-02-03", "t4.myshopify.com", monthly(2000, 14)),
+      pe("SUBSCRIPTION_CANCELED", "2026-02-04", "t4.myshopify.com"),
+      pe("RELATIONSHIP_INSTALLED", "2026-02-02", "t5.myshopify.com"),
+      pe("SUBSCRIPTION_CREATED", "2026-02-02", "t5.myshopify.com", monthly(0, 14, "free")),
+      pe("RELATIONSHIP_INSTALLED", "2026-02-08", "t6.myshopify.com"),
+      pe("SUBSCRIPTION_CREATED", "2026-02-08", "t6.myshopify.com", { amountCents: 24000, billingPeriod: "ANNUAL", trialDays: 7, planHandle: "yearly" }),
+    ]
+
+    beforeEach(async () => {
+      await reset()
+      await load(trialHistory())
+    })
+
+    it("lists the trials of paid plans still running, ending soonest first", async () => {
+      expect(await getOpenTrials(database.db, [appId])).toEqual({
+        total: 3,
+        monthlyCents: 7000,
+        trials: [
+          // The trial began on the basic plan and carried over to plus.
+          { appId, shop: "t2.myshopify.com", startedAt: new Date("2026-02-01T09:00:00Z"), endsAt: new Date("2026-02-15T09:00:00Z"), planHandle: "plus", billingPeriod: "EVERY_30_DAYS", monthlyCents: 3000 },
+          { appId, shop: "t6.myshopify.com", startedAt: new Date("2026-02-08T12:00:00Z"), endsAt: new Date("2026-02-15T12:00:00Z"), planHandle: "yearly", billingPeriod: "ANNUAL", monthlyCents: 2000 },
+          { appId, shop: "t1.myshopify.com", startedAt: new Date("2026-02-05T10:00:00Z"), endsAt: new Date("2026-02-19T10:00:00Z"), planHandle: "pro", billingPeriod: "EVERY_30_DAYS", monthlyCents: 2000 },
+        ],
+      })
+    })
+
+    it("are the rollup's In trial and MRR in trial on its last day", async () => {
+      const end = stocksAt(await getDayRows(database.db, [appId], { from: "2026-02-10", to: "2026-02-10" }), "2026-02-10")
+      expect([end.trialSubs, end.trialMrrCents]).toEqual([3, 7000])
+    })
+
+    it("keeps the count when the list is cut, and reads nothing for no apps", async () => {
+      const cut = await getOpenTrials(database.db, [appId], 1)
+      expect([cut.total, cut.monthlyCents, cut.trials.map((t) => t.shop)]).toEqual([3, 7000, ["t2.myshopify.com"]])
+      expect(await getOpenTrials(database.db, [])).toEqual({ total: 0, monthlyCents: 0, trials: [] })
+    })
+
+    it("reads the same inside a read-only transaction", async () => {
+      expect(await readOnly((tx) => getOpenTrials(tx, [appId]))).toEqual(await getOpenTrials(database.db, [appId]))
     })
   })
 })

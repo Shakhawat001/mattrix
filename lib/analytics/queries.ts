@@ -69,14 +69,14 @@ export async function listApps(db: Queryable): Promise<AppInfo[]> {
   return rows.map(({ name, ...r }) => ({ ...r, shopifyName: name, label: r.displayName?.trim() || name }))
 }
 
-export async function earliestDate(db: Db, appIds: string[]): Promise<string | null> {
+export async function earliestDate(db: Queryable, appIds: string[]): Promise<string | null> {
   if (appIds.length === 0) return null
   const [row] = await db.select({ first: sql<string | null>`min(${dailyMetrics.date})` }).from(dailyMetrics).where(inArray(dailyMetrics.appId, appIds))
   return row?.first ?? null
 }
 
 /** Rollup rows for the range and the day before it, which is where a range's starting stocks live. */
-export async function getDayRows(db: Db, appIds: string[], range: Range): Promise<DayRow[]> {
+export async function getDayRows(db: Queryable, appIds: string[], range: Range): Promise<DayRow[]> {
   if (appIds.length === 0) return []
   return db
     .select()
@@ -88,7 +88,7 @@ export async function getDayRows(db: Db, appIds: string[], range: Range): Promis
 // Churn, retention, trials, plans
 // ---------------------------------------------------------------------------
 
-export async function getReasons(db: Db, appIds: string[], range: Range): Promise<{ reason: string; count: number }[]> {
+export async function getReasons(db: Queryable, appIds: string[], range: Range): Promise<{ reason: string; count: number }[]> {
   if (appIds.length === 0) return []
   const rows = await db.execute<{ reason: string; n: number }>(sql`
     SELECT btrim(r) AS reason, count(*)::int AS n
@@ -105,7 +105,7 @@ export async function getReasons(db: Db, appIds: string[], range: Range): Promis
 export type Explanation = { appId: string; shop: string; at: Date; reason: string | null; text: string }
 
 /** The merchants' own words on leaving, newest first. */
-export async function getExplanations(db: Db, appIds: string[], range: Range, limit = 20): Promise<Explanation[]> {
+export async function getExplanations(db: Queryable, appIds: string[], range: Range, limit = 20): Promise<Explanation[]> {
   if (appIds.length === 0) return []
   const rows = await db
     .select({ appId: installs.appId, shop: installs.shop, at: installs.uninstalledAt, reason: installs.reason, text: installs.reasonDescription })
@@ -117,7 +117,7 @@ export async function getExplanations(db: Db, appIds: string[], range: Range, li
 }
 
 /** The installs made in a range, for cohort retention. */
-export async function getStays(db: Db, appIds: string[], range: Range): Promise<{ installedAt: Date; uninstalledAt: Date | null }[]> {
+export async function getStays(db: Queryable, appIds: string[], range: Range): Promise<{ installedAt: Date; uninstalledAt: Date | null }[]> {
   if (appIds.length === 0) return []
   return db
     .select({ installedAt: installs.installedAt, uninstalledAt: installs.uninstalledAt })
@@ -131,7 +131,7 @@ export async function getStays(db: Db, appIds: string[], range: Range): Promise<
  * one), at the first instant of the first day; the end is the last instant of the last day. An app with nobody at the start has no entry.
  * A shop that left and came back inside the range counts as kept: it has the app at the end.
  */
-export async function getRetention(db: Db, appIds: string[], range: Range): Promise<Map<string, Retention>> {
+export async function getRetention(db: Queryable, appIds: string[], range: Range): Promise<Map<string, Retention>> {
   const out = new Map<string, Retention>()
   if (appIds.length === 0) return out
   const t0 = ts(startOf(range.from))
@@ -191,7 +191,7 @@ export async function getRetention(db: Db, appIds: string[], range: Range): Prom
 export type LifetimeStats = { ended: number; open: number; medianDays: number | null; meanDays: number | null; within1Day: number; within7Days: number; within30Days: number }
 
 /** How long installs lasted, among those that ended in the range. */
-export async function getLifetimeStats(db: Db, appIds: string[], range: Range): Promise<LifetimeStats> {
+export async function getLifetimeStats(db: Queryable, appIds: string[], range: Range): Promise<LifetimeStats> {
   if (appIds.length === 0) return { ended: 0, open: 0, medianDays: null, meanDays: null, within1Day: 0, within7Days: 0, within30Days: 0 }
   const [row] = await db.execute<{ ended: number; open: number; median: number | null; mean: number | null; d1: number; d7: number; d30: number }>(sql`
     SELECT
@@ -240,7 +240,7 @@ export async function getPlanMix(db: Db, appIds: string[], date: string): Promis
 export type TrialStats = { started: number; converted: number; canceled: number; open: number; medianDaysToConvert: number | null }
 
 /** What became of the trials that started in a range. */
-export async function getTrialStats(db: Db, appIds: string[], range: Range): Promise<TrialStats> {
+export async function getTrialStats(db: Queryable, appIds: string[], range: Range): Promise<TrialStats> {
   if (appIds.length === 0) return { started: 0, converted: 0, canceled: 0, open: 0, medianDaysToConvert: null }
   const [row] = await db.execute<{ started: number; converted: number; canceled: number; open: number; median: number | null }>(sql`
     SELECT
@@ -280,6 +280,8 @@ export type ShopRow = {
 
 export type ShopFilters = {
   q?: string
+  /** One shop, by its exact domain as events store it. */
+  shop?: string
   status?: "installed" | "uninstalled"
   plan?: "paying" | "trial" | "free" | "churned"
   sort?: "recent" | "mrr" | "revenue" | "shop"
@@ -295,13 +297,14 @@ const SHOP_SORTS: Record<NonNullable<ShopFilters["sort"]>, string> = {
 }
 
 /** One row per shop per app: where it stands, what it pays, what it has paid in all. */
-export async function listShops(db: Db, appIds: string[], filters: ShopFilters = {}): Promise<{ rows: ShopRow[]; total: number }> {
+export async function listShops(db: Queryable, appIds: string[], filters: ShopFilters = {}): Promise<{ rows: ShopRow[]; total: number }> {
   if (appIds.length === 0) return { rows: [], total: 0 }
   const pageSize = Math.min(200, Math.max(1, filters.pageSize ?? 50))
   const offset = (Math.max(1, filters.page ?? 1) - 1) * pageSize
 
   const where: SQL[] = []
   if (filters.q?.trim()) where.push(sql`shop ILIKE ${`%${escapeLike(filters.q.trim())}%`}`)
+  if (filters.shop !== undefined) where.push(sql`shop = ${filters.shop}`)
   if (filters.status === "installed") where.push(sql`uninstalled_at IS NULL`)
   if (filters.status === "uninstalled") where.push(sql`uninstalled_at IS NOT NULL`)
   if (filters.plan === "paying") where.push(sql`subscribed`)

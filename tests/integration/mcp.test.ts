@@ -22,6 +22,7 @@ const SECRET = "mcp-test-session-secret-0123456789-abcdefghij"
 const DAY = 86_400_000
 const META = { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {} }
 const plain: NewApiToken = { name: "Claude Code", expiresInDays: null, hideShops: false }
+const TOOL_NAMES = ["explain_mrr_change", "get_churn", "get_data_health", "get_definitions", "get_metrics", "get_retention", "get_shop_timeline", "get_timeseries", "get_trials", "list_apps", "list_shops"]
 
 type Options = { token?: string; legacy?: boolean; headers?: Record<string, string>; url?: string }
 
@@ -138,7 +139,7 @@ describe.skipIf(!hasDatabase)("MCP endpoint (Postgres)", () => {
       expect(status).toBe(200)
       expect(type).toContain("application/json")
       const tools = message.result.tools
-      expect(tools.map((t: { name: string }) => t.name)).toEqual(["get_definitions", "list_apps"])
+      expect(tools.map((t: { name: string }) => t.name)).toEqual(TOOL_NAMES)
       for (const tool of tools) {
         expect(tool.annotations).toEqual({ readOnlyHint: true, idempotentHint: true, openWorldHint: false })
         expect(tool.description.length).toBeGreaterThan(50)
@@ -160,7 +161,7 @@ describe.skipIf(!hasDatabase)("MCP endpoint (Postgres)", () => {
       const list = await send(rpc("tools/list", undefined, { token: value, legacy: true }))
       expect(list.status).toBe(200)
       expect(list.type).toContain("text/event-stream")
-      expect(list.message.result.tools.map((t: { name: string }) => t.name)).toEqual(["get_definitions", "list_apps"])
+      expect(list.message.result.tools.map((t: { name: string }) => t.name)).toEqual(TOOL_NAMES)
     })
 
     it("answers server/discover with the 2026-07-28 revision", async () => {
