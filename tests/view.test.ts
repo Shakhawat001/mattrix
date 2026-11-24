@@ -120,13 +120,19 @@ describe("chart data", () => {
 })
 
 describe("sparklines", () => {
-  const points = bucketSeries([row("a", "2026-11-01", { installs: 3, uninstalls: 1, mrrCents: 500, newMrrCents: 100, churnedMrrCents: 40 })], { from: "2026-11-01", to: "2026-11-01" }, "day")
+  const points = bucketSeries(
+    [row("a", "2026-11-01", { installs: 3, uninstalls: 1, mrrCents: 500, newMrrCents: 100, churnedMrrCents: 40, churnedMrrStoreInactiveCents: 15 })],
+    { from: "2026-11-01", to: "2026-11-01" },
+    "day",
+  )
 
   it("plots a measure the KPI is built from", () => {
     expect(sparkValues(points, "installs")).toEqual([3])
     expect(sparkValues(points, "netInstalls")).toEqual([2])
     expect(sparkValues(points, "arr")).toEqual([6000])
     expect(sparkValues(points, "netNewMrr")).toEqual([60])
+    expect(sparkValues(points, "churnedMrrStoreInactive")).toEqual([15])
+    expect(sparkValues(points, "churnedMrrMerchantLeft")).toEqual([25])
   })
 
   it("has none for a ratio, which does not add up over buckets", () => {

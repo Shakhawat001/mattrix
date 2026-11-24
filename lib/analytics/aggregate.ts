@@ -11,6 +11,8 @@ export const FLOW_KEYS = [
   "trialsStarted", "trialsConverted", "trialsCanceled",
   "newMrrCents", "expansionMrrCents", "contractionMrrCents", "churnedMrrCents",
   "chargedCents", "grossEarnedCents", "netEarnedCents", "feeCents", "refundedCents", "creditCents",
+  // Store deactivations, and the parts of the losses above that were the store going inactive.
+  "deactivations", "reactivations", "uninstallsStoreInactive", "canceledSubsStoreInactive", "churnedMrrStoreInactiveCents",
 ] as const
 
 /** activeSubs and mrrCents are paying only; trialSubs and trialMrrCents are the subscriptions still in a free trial. */
@@ -111,6 +113,11 @@ export type Kpis = {
   newSubs: number; canceledSubs: number; activeSubs: number; trialSubs: number
   mrr: number; trialMrr: number; mrrStart: number; mrrChange: number; mrrChangePct: number | null; arr: number
   newMrr: number; expansionMrr: number; contractionMrr: number; churnedMrr: number; netNewMrr: number
+  /** Losses by cause: the store went inactive (closed, paused or unpaid), or the merchant left. Each pair adds up to its total. */
+  uninstallsStoreInactive: number; uninstallsMerchantLeft: number
+  canceledSubsStoreInactive: number; canceledSubsMerchantLeft: number
+  churnedMrrStoreInactive: number; churnedMrrMerchantLeft: number
+  deactivations: number; reactivations: number
   /** Net revenue retention: what the starting subscribers pay at the end, over what they paid at the start. */
   nrr: number | null
   /** Gross revenue retention: the same, with no credit for upgrades. */
@@ -165,6 +172,14 @@ export function kpis(flows: Flows, start: Stocks, end: Stocks, days: number, ret
     contractionMrr: flows.contractionMrrCents,
     churnedMrr: flows.churnedMrrCents,
     netNewMrr,
+    uninstallsStoreInactive: flows.uninstallsStoreInactive,
+    uninstallsMerchantLeft: flows.uninstalls - flows.uninstallsStoreInactive,
+    canceledSubsStoreInactive: flows.canceledSubsStoreInactive,
+    canceledSubsMerchantLeft: flows.canceledSubs - flows.canceledSubsStoreInactive,
+    churnedMrrStoreInactive: flows.churnedMrrStoreInactiveCents,
+    churnedMrrMerchantLeft: flows.churnedMrrCents - flows.churnedMrrStoreInactiveCents,
+    deactivations: flows.deactivations,
+    reactivations: flows.reactivations,
     nrr: r ? ratio(r.endMrr, r.startMrr) : null,
     grr: r ? ratio(r.keptMrr, r.startMrr) : null,
     subChurnRate,

@@ -94,6 +94,18 @@ describe("kpis", () => {
   it("still reports how many cancellations happened", () => {
     expect(k.canceledSubs).toBe(2)
   })
+  it("splits losses by cause: the merchant left is whatever of each total the inactive stores do not explain", () => {
+    // Of the 10 uninstalls, 4 were stores Shopify had deactivated; of the 2 cancels and $10 churned, 1 and $6 were.
+    const split = kpis({ ...flows, uninstallsStoreInactive: 4, canceledSubsStoreInactive: 1, churnedMrrStoreInactiveCents: 600, deactivations: 5, reactivations: 2 }, start, end, 30, retention)
+    expect(split).toMatchObject({
+      uninstalls: 10, uninstallsStoreInactive: 4, uninstallsMerchantLeft: 6,
+      canceledSubs: 2, canceledSubsStoreInactive: 1, canceledSubsMerchantLeft: 1,
+      churnedMrr: 1000, churnedMrrStoreInactive: 600, churnedMrrMerchantLeft: 400,
+      deactivations: 5, reactivations: 2,
+    })
+    // With no store deactivated, every loss is the merchant's.
+    expect(k).toMatchObject({ uninstallsMerchantLeft: 10, canceledSubsMerchantLeft: 2, churnedMrrMerchantLeft: 1000, churnedMrrStoreInactive: 0 })
+  })
   it("computes ARPU, and a rough lifetime value from a month's churn", () => {
     expect(k.arpu).toBeCloseTo(12300 / 11)
     expect(k.ltv).toBeCloseTo(12300 / 11 / 0.2)

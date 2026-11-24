@@ -65,6 +65,14 @@ export const DEMO_APPS: DemoApp[] = [
   },
 ]
 
+// Shopify deactivates some stores along the way: they close, pause or stop paying Shopify.
+/** Chance a paying store is deactivated at each billing date after its first. */
+const DEACTIVATED_PER_CYCLE = 0.04
+/** Share of the stays with no subscription whose store is deactivated at some point. */
+const DEACTIVATED_SHARE = 0.06
+/** Share of deactivated stores that come back. */
+const COMES_BACK = 0.4
+
 const REASONS = [
   ["too_expensive", 0.22],
   ["app_not_working", 0.18],
@@ -164,9 +172,23 @@ export function generateDemoEvents(options: { now: Date; days?: number; seed?: n
       // How long it stays.
       const quick = rand() < 0.26
       const lifetime = quick ? between(0.01, 3) * DAY_MS : (3 + -Math.log(1 - rand()) * app.meanLifetimeDays) * DAY_MS
-      const uninstallAt = installAt + lifetime
+      let uninstallAt = installAt + lifetime
+
+      // Shopify deactivates the store. It comes back within weeks, or it never does and the shop
+      // leaves while deactivated. Returns when it comes back.
+      const deactivate = (at: number): number | null => {
+        emit("RELATIONSHIP_DEACTIVATED", at, shop, shopGid, { state: "DEACTIVATED" })
+        const back = at + between(3, 30) * DAY_MS
+        if (rand() < COMES_BACK && back < uninstallAt) {
+          emit("RELATIONSHIP_REACTIVATED", back, shop, shopGid, { state: "REACTIVATED" })
+          return back
+        }
+        uninstallAt = Math.min(uninstallAt, at + between(1, 60) * DAY_MS)
+        return null
+      }
 
       // Does it pay, and for how long.
+      let subscribed = false
       let subscriptionEnd = Infinity
       if (!quick && rand() < app.paidShare * 1.3) {
         const startsAt = installAt + between(0, 9) * DAY_MS
@@ -177,6 +199,7 @@ export function generateDemoEvents(options: { now: Date; days?: number; seed?: n
         const plan = { planHandle: app.planHandle, billingPeriod: period, amountCents: price }
 
         if (startsAt < uninstallAt) {
+          subscribed = true
           emit("SUBSCRIPTION_CREATED", startsAt, shop, shopGid, { ...plan, state: "CREATED", trialDays: app.trialDays || null })
           const trialEnd = startsAt + app.trialDays * DAY_MS
 
@@ -189,6 +212,25 @@ export function generateDemoEvents(options: { now: Date; days?: number; seed?: n
             let planChanged = false
             while (chargeAt < uninstallAt && chargeAt <= now.getTime()) {
               const gross = planChanged ? Math.round(price * 1.4) : price
+              // Shopify freezes the charge of a store it deactivates, and unfreezes it if the store comes
+              // back. A store that never does has its charge frozen, or canceled, before it leaves.
+              if (cycle > 0 && rand() < DEACTIVATED_PER_CYCLE * (yearly ? 3 : 1)) {
+                const charge = { ...plan, amountCents: gross }
+                const back = deactivate(chargeAt)
+                if (back === null) {
+                  if (rand() < 0.75) {
+                    subscriptionEnd = chargeAt
+                    emit("SUBSCRIPTION_FROZEN", chargeAt, shop, shopGid, { ...charge, state: "FROZEN" })
+                  } else {
+                    subscriptionEnd = chargeAt + between(1, 20) * DAY_MS
+                    if (subscriptionEnd < uninstallAt) emit("SUBSCRIPTION_CANCELED", subscriptionEnd, shop, shopGid, { state: "CANCELED" })
+                  }
+                  break
+                }
+                emit("SUBSCRIPTION_FROZEN", chargeAt, shop, shopGid, { ...charge, state: "FROZEN" })
+                emit("SUBSCRIPTION_UNFROZEN", back, shop, shopGid, { ...charge, state: "UNFROZEN" })
+                chargeAt = back
+              }
               emit("CHARGE_RECURRING", chargeAt, shop, shopGid, { amountCents: gross, planHandle: app.planHandle, chargeId: `demo-charge-${eventCounter}` })
               const fee = Math.round(gross * 0.029)
               emit("EARNING_CHARGE_RECURRING", chargeAt + 2 * DAY_MS, shop, shopGid, { grossCents: gross, netCents: gross - fee, feeCents: fee })
@@ -208,6 +250,9 @@ export function generateDemoEvents(options: { now: Date; days?: number; seed?: n
           }
         }
       }
+
+      // A store with no subscription can be deactivated too.
+      if (!quick && !subscribed && rand() < DEACTIVATED_SHARE) deactivate(installAt + between(0.1, 0.9) * lifetime)
 
       // The uninstall, or a cancel that comes first and takes the shop with it.
       const leavesAt = Math.min(uninstallAt, subscriptionEnd < Infinity && rand() < 0.5 ? subscriptionEnd + between(0, 4) * DAY_MS : uninstallAt)

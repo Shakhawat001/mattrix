@@ -290,7 +290,7 @@ describe("daily rollup", () => {
   })
 
   it("treats a freeze as lost revenue and an unfreeze as revenue regained", () => {
-    expect(day("2026-01-15")).toMatchObject({ churnedMrrCents: 1000, canceledSubs: 1, activeSubs: 1, mrrCents: 2000 })
+    expect(day("2026-01-15")).toMatchObject({ churnedMrrCents: 1000, canceledSubs: 1, churnedMrrStoreInactiveCents: 1000, canceledSubsStoreInactive: 1, activeSubs: 1, mrrCents: 2000 })
     expect(day("2026-01-16")).toMatchObject({ newMrrCents: 1000, newSubs: 1, activeSubs: 2, mrrCents: 3000 })
   })
 
@@ -306,6 +306,8 @@ describe("daily rollup", () => {
 
   it("books a cancel and an uninstall on the last day as churn, once", () => {
     expect(day("2026-02-05")).toMatchObject({ churnedMrrCents: 3000, canceledSubs: 1, uninstalls: 1, activeInstalls: 2, activeSubs: 1, mrrCents: 1000 })
+    // The store was never deactivated: the merchant left.
+    expect(day("2026-02-05")).toMatchObject({ churnedMrrStoreInactiveCents: 0, canceledSubsStoreInactive: 0, uninstallsStoreInactive: 0 })
   })
 
   it("ends on the right stocks", () => {
@@ -463,6 +465,165 @@ describe("plan changes Shopify reports as two events", () => {
     expect(dayOf(r, "2026-01-15")).toMatchObject({ newMrrCents: 3000, activeSubs: 1, trialsConverted: 1 })
     expect(r.daily.every((d) => d.churnedMrrCents === 0)).toBe(true)
     mrrAddsUp(r)
+  })
+})
+
+describe("churn by cause", () => {
+  // x installs on 1 January and pays $20 a month from that day, with no trial.
+  const x = "x.myshopify.com"
+  const paying = [ev("RELATIONSHIP_INSTALLED", "2026-01-01", x), ev("SUBSCRIPTION_CREATED", "2026-01-01", x, monthly(2000))]
+  const noInactiveChurn = (r: ReturnType<typeof derive>) => r.daily.every((d) => d.churnedMrrStoreInactiveCents === 0 && d.canceledSubsStoreInactive === 0)
+
+  it("counts a freeze as the store going inactive, with or without a deactivation", () => {
+    const alone = derive([...paying, ev("SUBSCRIPTION_FROZEN", "2026-01-10", x)], NOW)
+    expect(dayOf(alone, "2026-01-10")).toMatchObject({
+      churnedMrrCents: 2000, canceledSubs: 1, churnedMrrStoreInactiveCents: 2000, canceledSubsStoreInactive: 1, deactivations: 0, activeSubs: 0, mrrCents: 0,
+    })
+    mrrAddsUp(alone)
+
+    const deactivated = derive([...paying, ev("SUBSCRIPTION_FROZEN", "2026-01-10", x), ev("RELATIONSHIP_DEACTIVATED", "2026-01-10", x)], NOW)
+    expect(dayOf(deactivated, "2026-01-10")).toMatchObject({ churnedMrrStoreInactiveCents: 2000, canceledSubsStoreInactive: 1, deactivations: 1, activeInstalls: 1 })
+  })
+
+  it("counts a cancel while the store is deactivated as the store going inactive", () => {
+    const r = derive([...paying, ev("RELATIONSHIP_DEACTIVATED", "2026-01-10", x), ev("SUBSCRIPTION_CANCELED", "2026-01-12", x)], NOW)
+    // The deactivation alone moves no stock: the shop is still installed and still pays.
+    expect(dayOf(r, "2026-01-10")).toMatchObject({ deactivations: 1, activeInstalls: 1, activeSubs: 1, mrrCents: 2000, churnedMrrCents: 0 })
+    expect(dayOf(r, "2026-01-12")).toMatchObject({
+      churnedMrrCents: 2000, canceledSubs: 1, churnedMrrStoreInactiveCents: 2000, canceledSubsStoreInactive: 1, activeSubs: 0, activeInstalls: 1,
+    })
+    mrrAddsUp(r)
+  })
+
+  it("counts an uninstall while the store is deactivated as the store going inactive, and the subscription it ends too", () => {
+    const r = derive([...paying, ev("RELATIONSHIP_DEACTIVATED", "2026-01-10", x), ev("RELATIONSHIP_UNINSTALLED", "2026-01-15", x)], NOW)
+    expect(dayOf(r, "2026-01-15")).toMatchObject({
+      uninstalls: 1, uninstallsStoreInactive: 1, churnedMrrCents: 2000, churnedMrrStoreInactiveCents: 2000, canceledSubs: 1, canceledSubsStoreInactive: 1, activeInstalls: 0, activeSubs: 0,
+    })
+    expect(r.subscriptions[0].endReason).toBe("uninstalled")
+    mrrAddsUp(r)
+  })
+
+  it("counts a cancel and an uninstall after the store came back as the merchant leaving", () => {
+    const r = derive(
+      [
+        ...paying,
+        ev("RELATIONSHIP_DEACTIVATED", "2026-01-05", x),
+        ev("RELATIONSHIP_REACTIVATED", "2026-01-08", x),
+        ev("SUBSCRIPTION_CANCELED", "2026-01-12", x),
+        ev("RELATIONSHIP_UNINSTALLED", "2026-01-20", x),
+      ],
+      NOW,
+    )
+    expect(dayOf(r, "2026-01-05")).toMatchObject({ deactivations: 1, reactivations: 0 })
+    expect(dayOf(r, "2026-01-08")).toMatchObject({ deactivations: 0, reactivations: 1 })
+    expect(dayOf(r, "2026-01-12")).toMatchObject({ churnedMrrCents: 2000, canceledSubs: 1, churnedMrrStoreInactiveCents: 0, canceledSubsStoreInactive: 0 })
+    expect(dayOf(r, "2026-01-20")).toMatchObject({ uninstalls: 1, uninstallsStoreInactive: 0 })
+    mrrAddsUp(r)
+  })
+
+  it("counts a move to a free plan as the merchant leaving, even while the store is deactivated", () => {
+    const r = derive([...paying, ev("RELATIONSHIP_DEACTIVATED", "2026-01-05", x), ev("SUBSCRIPTION_UPDATED", "2026-01-10", x, { ...monthly(0), planHandle: "free" })], NOW)
+    expect(dayOf(r, "2026-01-10")).toMatchObject({ churnedMrrCents: 2000, canceledSubs: 1, churnedMrrStoreInactiveCents: 0, canceledSubsStoreInactive: 0 })
+  })
+
+  it("counts a deactivation with no paying subscription, and the uninstall that follows, without any churn", () => {
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", x),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", x, { ...monthly(0), planHandle: "free" }),
+        ev("RELATIONSHIP_DEACTIVATED", "2026-01-10", x),
+        ev("RELATIONSHIP_UNINSTALLED", "2026-01-20", x),
+        // Installed before the history starts: only its deactivation and uninstall are seen.
+        ev("RELATIONSHIP_DEACTIVATED", "2026-01-11", "old.myshopify.com"),
+        ev("RELATIONSHIP_UNINSTALLED", "2026-01-21", "old.myshopify.com"),
+      ],
+      NOW,
+    )
+    expect(dayOf(r, "2026-01-10")).toMatchObject({ deactivations: 1, activeInstalls: 1 })
+    expect(dayOf(r, "2026-01-20")).toMatchObject({ uninstalls: 1, uninstallsStoreInactive: 1, canceledSubs: 0, churnedMrrCents: 0, activeInstalls: 0 })
+    expect(dayOf(r, "2026-01-21")).toMatchObject({ uninstalls: 1, uninstallsStoreInactive: 1, activeInstalls: 0 })
+    expect(r.orphanUninstalls).toBe(1)
+    expect(noInactiveChurn(r)).toBe(true)
+  })
+
+  it("never counts a trial that ends while the store is deactivated as churn", () => {
+    const y = "y.myshopify.com"
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", x),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", x, monthly(2000, 14)),
+        ev("RELATIONSHIP_DEACTIVATED", "2026-01-03", x),
+        ev("SUBSCRIPTION_CANCELED", "2026-01-04", x),
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", y),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", y, monthly(3000, 14)),
+        ev("RELATIONSHIP_DEACTIVATED", "2026-01-04", y),
+        ev("SUBSCRIPTION_FROZEN", "2026-01-04", y),
+      ],
+      NOW,
+    )
+    expect(r.trials.map((t) => t.outcome)).toEqual(["canceled", "canceled"])
+    expect(dayOf(r, "2026-01-04")).toMatchObject({ trialsCanceled: 2, canceledSubs: 0, churnedMrrCents: 0, trialSubs: 0, trialMrrCents: 0 })
+    expect(noInactiveChurn(r)).toBe(true)
+    mrrAddsUp(r)
+  })
+
+  it("forgets a deactivation from before the shop's latest install", () => {
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", x),
+        ev("RELATIONSHIP_DEACTIVATED", "2026-01-05", x),
+        ev("RELATIONSHIP_UNINSTALLED", "2026-01-06", x),
+        ev("RELATIONSHIP_INSTALLED", "2026-01-10", x),
+        ev("SUBSCRIPTION_CREATED", "2026-01-10", x, monthly(2000)),
+        ev("SUBSCRIPTION_CANCELED", "2026-01-20", x),
+        ev("RELATIONSHIP_UNINSTALLED", "2026-01-21", x),
+      ],
+      NOW,
+    )
+    expect(dayOf(r, "2026-01-06")).toMatchObject({ uninstalls: 1, uninstallsStoreInactive: 1 })
+    expect(dayOf(r, "2026-01-20")).toMatchObject({ churnedMrrCents: 2000, churnedMrrStoreInactiveCents: 0, canceledSubsStoreInactive: 0 })
+    expect(dayOf(r, "2026-01-21")).toMatchObject({ uninstalls: 1, uninstallsStoreInactive: 0 })
+  })
+
+  it("puts a deactivation before what happens at the same instant, and a reactivation after it", () => {
+    const deactivate = ev("RELATIONSHIP_DEACTIVATED", "2026-01-10", x)
+    const cancel = ev("SUBSCRIPTION_CANCELED", "2026-01-10", x)
+    for (const order of [[deactivate, cancel], [cancel, deactivate]]) {
+      expect(dayOf(derive([...paying, ...order], NOW), "2026-01-10")).toMatchObject({ churnedMrrStoreInactiveCents: 2000, canceledSubsStoreInactive: 1 })
+    }
+    const reactivate = ev("RELATIONSHIP_REACTIVATED", "2026-01-10", x)
+    const r = derive([...paying, ev("RELATIONSHIP_DEACTIVATED", "2026-01-05", x), reactivate, cancel], NOW)
+    expect(dayOf(r, "2026-01-10")).toMatchObject({ churnedMrrStoreInactiveCents: 2000, reactivations: 1 })
+  })
+
+  it("judges a cancel that takes effect later by the store's state on the day it takes effect", () => {
+    // Scheduled while the store was active; Shopify deactivated the store before the date.
+    const closed = derive(
+      [...paying, ev("SUBSCRIPTION_CANCELLATION_SCHEDULED", "2026-01-05", x, { cancelEffectiveOn: at("2026-01-20") }), ev("RELATIONSHIP_DEACTIVATED", "2026-01-10", x)],
+      NOW,
+    )
+    expect(dayOf(closed, "2026-01-20")).toMatchObject({ churnedMrrCents: 2000, churnedMrrStoreInactiveCents: 2000, canceledSubsStoreInactive: 1 })
+
+    // Scheduled while the store was deactivated; it came back before the date.
+    const back = derive(
+      [
+        ...paying,
+        ev("RELATIONSHIP_DEACTIVATED", "2026-01-03", x),
+        ev("SUBSCRIPTION_CANCELLATION_SCHEDULED", "2026-01-05", x, { cancelEffectiveOn: at("2026-01-20") }),
+        ev("RELATIONSHIP_REACTIVATED", "2026-01-10", x),
+      ],
+      NOW,
+    )
+    expect(dayOf(back, "2026-01-20")).toMatchObject({ churnedMrrCents: 2000, churnedMrrStoreInactiveCents: 0, canceledSubsStoreInactive: 0 })
+  })
+
+  it("never splits out more than the total", () => {
+    for (const d of result.daily) {
+      expect(d.uninstallsStoreInactive, d.date).toBeLessThanOrEqual(d.uninstalls)
+      expect(d.canceledSubsStoreInactive, d.date).toBeLessThanOrEqual(d.canceledSubs)
+      expect(d.churnedMrrStoreInactiveCents, d.date).toBeLessThanOrEqual(d.churnedMrrCents)
+    }
   })
 })
 

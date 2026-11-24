@@ -270,6 +270,32 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
       expect(stocksAt(rows, "2026-02-04").mrrCents).toBe(4000)
     })
 
+    it("splits losses by cause, and stores the parts with the day", async () => {
+      await load([
+        // p pays $20 until Shopify deactivates the store and freezes the charge on the 10th; it uninstalls on the 20th, still deactivated.
+        pe("RELATIONSHIP_INSTALLED", "2026-01-01", "p.myshopify.com"),
+        pe("SUBSCRIPTION_CREATED", "2026-01-01", "p.myshopify.com", monthly(2000)),
+        pe("RELATIONSHIP_DEACTIVATED", "2026-01-10", "p.myshopify.com"),
+        pe("SUBSCRIPTION_FROZEN", "2026-01-10", "p.myshopify.com"),
+        pe("RELATIONSHIP_UNINSTALLED", "2026-01-20", "p.myshopify.com"),
+        // q pays $10, is deactivated and comes back, then cancels: the merchant left.
+        pe("RELATIONSHIP_INSTALLED", "2026-01-01", "q.myshopify.com"),
+        pe("SUBSCRIPTION_CREATED", "2026-01-01", "q.myshopify.com", monthly(1000)),
+        pe("RELATIONSHIP_DEACTIVATED", "2026-01-05", "q.myshopify.com"),
+        pe("RELATIONSHIP_REACTIVATED", "2026-01-08", "q.myshopify.com"),
+        pe("SUBSCRIPTION_CANCELED", "2026-01-15", "q.myshopify.com"),
+      ])
+      const [jan10] = await database.db.select().from(dailyMetrics).where(eq(dailyMetrics.date, "2026-01-10"))
+      expect(jan10).toMatchObject({ deactivations: 1, canceledSubsStoreInactive: 1, churnedMrrStoreInactiveCents: 2000 })
+      const k = kpisFor(await getDayRows(database.db, [appId], range), range)
+      expect(k).toMatchObject({
+        deactivations: 2, reactivations: 1,
+        uninstalls: 1, uninstallsStoreInactive: 1, uninstallsMerchantLeft: 0,
+        canceledSubs: 2, canceledSubsStoreInactive: 1, canceledSubsMerchantLeft: 1,
+        churnedMrr: 3000, churnedMrrStoreInactive: 2000, churnedMrrMerchantLeft: 1000,
+      })
+    })
+
     it("finds the first day with data", async () => {
       await load()
       expect(await earliestDate(database.db, [appId])).toBe("2026-01-01")
@@ -557,6 +583,7 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
       const all = await listApps(database.db)
       expect(all).toHaveLength(3)
 
+      const byCause = { deactivations: 0, reactivations: 0, uninstallsStoreInactive: 0, canceledSubsStoreInactive: 0, churnedMrrStoreInactiveCents: 0 }
       for (const app of all) {
         const days = await database.db.select().from(dailyMetrics).where(eq(dailyMetrics.appId, app.id)).orderBy(dailyMetrics.date)
         expect(days.length).toBeGreaterThan(100)
@@ -564,6 +591,11 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
           for (const key of ["activeInstalls", "activeSubs", "trialSubs", "mrrCents", "trialMrrCents"] as const) {
             expect(d[key], `${app.label} ${d.date} ${key}`).toBeGreaterThanOrEqual(0)
           }
+          // The store inactive part of a loss is never more than the loss.
+          expect(d.uninstallsStoreInactive, `${app.label} ${d.date}`).toBeLessThanOrEqual(d.uninstalls)
+          expect(d.canceledSubsStoreInactive, `${app.label} ${d.date}`).toBeLessThanOrEqual(d.canceledSubs)
+          expect(d.churnedMrrStoreInactiveCents, `${app.label} ${d.date}`).toBeLessThanOrEqual(d.churnedMrrCents)
+          for (const key of Object.keys(byCause) as (keyof typeof byCause)[]) byCause[key] += d[key]
           if (i > 0) {
             const p = days[i - 1]
             expect(d.mrrCents, `${app.label} ${d.date}`).toBe(p.mrrCents + d.newMrrCents + d.expansionMrrCents - d.contractionMrrCents - d.churnedMrrCents)
@@ -573,6 +605,8 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
         const open = (await database.db.select().from(installs).where(eq(installs.appId, app.id))).filter((s) => s.uninstalledAt === null).length
         expect(days[days.length - 1].activeInstalls).toBe(open)
       }
+      // Some stores are deactivated: some come back, and some leave while deactivated, paying or not.
+      for (const [key, total] of Object.entries(byCause)) expect(total, key).toBeGreaterThan(0)
     })
 
     // A day's change in installs standing is its installs less the uninstalls that ended a stay.

@@ -48,6 +48,7 @@ The rules are written down in [METRICS.md](METRICS.md). The ones that shape the 
 - A plan change is expansion or contraction, not churn plus a new sale.
 - MRR is tracked as a running total that must add up every day (`MRR = previous day + new + expansion - contraction - churned`). A test runs this over generated data for every app and day.
 - A shop's history is replayed in time order, with ties broken by event type, so an install always lands before its first subscription and an uninstall after its cancel. Events of the same type at the same instant are read in the order of their ids, so every rebuild gives the same result.
+- The replay knows whether Shopify has the store's billing account deactivated, so each loss gets a cause: the store went inactive, or the merchant left.
 - Excluded shops (Settings) are left out when an app is rebuilt; their events stay stored. Changing the list marks every app dirty. A rebuild holds a lock on its app's row from reading the events to writing the new rows, so a change made meanwhile waits and marks the app again instead of being lost.
 
 ## How a page is built

@@ -22,13 +22,17 @@ import { EVENT } from "@/lib/partner/query"
 //   - Subscription events carry no subscription id, so a plan change has to be recognized: a
 //     second subscription while one is open, a cancel naming another plan moments after a new one
 //     began, or a cancel followed within minutes by a new subscription are all one plan change.
+//   - A loss has one of two causes. A freeze, or a cancel or an uninstall while Shopify has the
+//     store's billing account deactivated (closed, paused or unpaid: a deactivation since its latest
+//     install, with no reactivation since), is the store going inactive. Anything else is the
+//     merchant leaving.
 
 /**
  * The version of these rules. Each app stores the version its derived tables were built with, and
  * the worker rebuilds any app built with an older one, so a deploy that changes a rule recomputes
  * all of history. Bump it with every change to what derive() returns.
  */
-export const DERIVE_VERSION = 2
+export const DERIVE_VERSION = 3
 
 const DAY_MS = 86_400_000
 /** A cancel and a new subscription this close together are one plan change, not a loss and a new sale. */
@@ -107,6 +111,13 @@ export type DailyRow = {
   feeCents: number
   refundedCents: number
   creditCents: number
+  /** Times Shopify deactivated a store's billing account (closed, paused or unpaid), and reactivated one. */
+  deactivations: number
+  reactivations: number
+  /** The parts of uninstalls, canceledSubs and churnedMrrCents that were the store going inactive (lostToInactiveStore). */
+  uninstallsStoreInactive: number
+  canceledSubsStoreInactive: number
+  churnedMrrStoreInactiveCents: number
   activeInstalls: number
   /** Paying subscribers. */
   activeSubs: number
@@ -133,22 +144,25 @@ export function monthlyCents(amountCents: number | null, billingPeriod: string |
   return billingPeriod === "ANNUAL" ? Math.round(amountCents / 12) : amountCents
 }
 
-// On the same instant: the install first, then a cancel (so a cancel and a new subscription
-// at the same moment read as a plan change), then what a subscription does, charges, then the endings.
+// On the same instant: the install first, then a deactivation (so what comes with it counts as the
+// store going inactive), then a cancel (so a cancel and a new subscription at the same moment read
+// as a plan change), then what a subscription does, charges, the endings, and a reactivation last.
 const RANK: Record<string, number> = {
   RELATIONSHIP_INSTALLED: 0,
-  SUBSCRIPTION_CANCELED: 1,
-  SUBSCRIPTION_CREATED: 2,
-  SUBSCRIPTION_UPDATED: 2,
-  SUBSCRIPTION_UNFROZEN: 2,
-  SUBSCRIPTION_FROZEN: 4,
-  RELATIONSHIP_UNINSTALLED: 5,
+  RELATIONSHIP_DEACTIVATED: 1,
+  SUBSCRIPTION_CANCELED: 2,
+  SUBSCRIPTION_CREATED: 3,
+  SUBSCRIPTION_UPDATED: 3,
+  SUBSCRIPTION_UNFROZEN: 3,
+  SUBSCRIPTION_FROZEN: 5,
+  RELATIONSHIP_UNINSTALLED: 6,
+  RELATIONSHIP_REACTIVATED: 7,
 }
-const rankOf = (type: string) => RANK[type] ?? 3
+const rankOf = (type: string) => RANK[type] ?? 4
 
 type TrialRef = { endsAt: Date; convertedAt: Date | null }
 type Trial = { row: TrialRow; ref: TrialRef }
-type Period = SubscriptionRow & { ref: TrialRef | null; scheduledEnd: Date | null }
+type Period = SubscriptionRow & { ref: TrialRef | null; scheduledEnd: Date | null; endedWhileDeactivated: boolean }
 type ShopState = {
   install: InstallRow | null
   installCount: number
@@ -159,6 +173,8 @@ type ShopState = {
   trial: Trial | null
   /** The last period that ended in a cancel, and the trial it ended, in case a new subscription follows at once. */
   lastCancel: { period: Period; at: Date; trial: Trial | null } | null
+  /** Shopify deactivated the store's billing account after its latest install, and has not reactivated it since. */
+  deactivated: boolean
 }
 
 /** Does the event name the plan this period is on? An event that names no plan cannot be told apart, so it counts as a match. */
@@ -193,13 +209,14 @@ export function derive(events: RawEvent[], now: Date): Derived {
   const periods: Period[] = []
   const trials: TrialRow[] = []
   const uninstallDates: Date[] = []
+  const inactiveUninstallDates: Date[] = []
   const moneyEvents: RawEvent[] = []
   const shops = new Map<string, ShopState>()
   let orphanUninstalls = 0
 
   const stateOf = (shop: string): ShopState => {
     let s = shops.get(shop)
-    if (!s) shops.set(shop, (s = { install: null, installCount: 0, sub: null, lastMonthly: 0, lastPlan: null, lastBilling: null, trial: null, lastCancel: null }))
+    if (!s) shops.set(shop, (s = { install: null, installCount: 0, sub: null, lastMonthly: 0, lastPlan: null, lastBilling: null, trial: null, lastCancel: null, deactivated: false }))
     return s
   }
 
@@ -216,6 +233,7 @@ export function derive(events: RawEvent[], now: Date): Derived {
     const period = s.sub
     period.endedAt = at
     period.endReason = reason
+    period.endedWhileDeactivated = s.deactivated
     s.lastMonthly = period.monthlyCents
     s.lastPlan = period.planHandle
     s.lastBilling = period.billingPeriod
@@ -243,6 +261,7 @@ export function derive(events: RawEvent[], now: Date): Derived {
       // A trial in progress carries over to the new plan.
       ref: s.trial?.ref ?? null,
       scheduledEnd: null,
+      endedWhileDeactivated: false,
     }
     periods.push(period)
     s.sub = period
@@ -335,6 +354,8 @@ export function derive(events: RawEvent[], now: Date): Derived {
 
     switch (e.type) {
       case EVENT.INSTALLED:
+        // An install means the store is active, whatever Shopify said about it before.
+        s.deactivated = false
         if (!s.install) {
           s.installCount++
           const row: InstallRow = { shop: e.shop, seq: s.installCount, installedAt: e.occurredAt, uninstalledAt: null, reason: null, reasonDescription: null }
@@ -343,7 +364,16 @@ export function derive(events: RawEvent[], now: Date): Derived {
         }
         break
 
+      case EVENT.DEACTIVATED:
+        s.deactivated = true
+        break
+
+      case EVENT.REACTIVATED:
+        s.deactivated = false
+        break
+
       case EVENT.UNINSTALLED:
+        if (s.deactivated) inactiveUninstallDates.push(e.occurredAt)
         if (s.install) {
           s.install.uninstalledAt = e.occurredAt
           s.install.reason = e.reason
@@ -411,7 +441,7 @@ export function derive(events: RawEvent[], now: Date): Derived {
   // Up to now: trials that have ended convert, cancellations that have taken effect end.
   for (const s of shops.values()) settle(s, now)
 
-  // Listed field by field, so nothing used only while working (the trial reference, a pending end) is stored.
+  // Listed field by field, so nothing used only while working (the trial reference, a pending end, the store's state) is stored.
   const subscriptions: SubscriptionRow[] = periods.map((p) => ({
     shop: p.shop,
     startedAt: p.startedAt,
@@ -430,7 +460,7 @@ export function derive(events: RawEvent[], now: Date): Derived {
     installs,
     subscriptions,
     trials,
-    daily: buildDaily({ sorted, installs, periods, trials, uninstallDates, moneyEvents, now }),
+    daily: buildDaily({ sorted, installs, periods, trials, uninstallDates, inactiveUninstallDates, moneyEvents, now }),
     orphanUninstalls,
   }
 }
@@ -449,16 +479,25 @@ function paidFrom(p: Period): number | null {
   return from
 }
 
+/**
+ * A lost period was the store going inactive (closed, paused or unpaid) when a freeze ended it, or a
+ * cancel or an uninstall while Shopify had the store deactivated. Any other end, a move to a free
+ * plan included, was the merchant leaving.
+ */
+const lostToInactiveStore = (p: Period) => p.endReason === "frozen" || ((p.endReason === "canceled" || p.endReason === "uninstalled") && p.endedWhileDeactivated)
+
 function buildDaily(input: {
   sorted: RawEvent[]
   installs: InstallRow[]
   periods: Period[]
   trials: TrialRow[]
   uninstallDates: Date[]
+  /** The uninstalls of stores Shopify had deactivated. */
+  inactiveUninstallDates: Date[]
   moneyEvents: RawEvent[]
   now: Date
 }): DailyRow[] {
-  const { sorted, installs, periods, trials, uninstallDates, moneyEvents, now } = input
+  const { sorted, installs, periods, trials, uninstallDates, inactiveUninstallDates, moneyEvents, now } = input
   if (sorted.length === 0) return []
 
   const firstMs = utcMidnight(sorted[0].occurredAt)
@@ -473,6 +512,7 @@ function buildDaily(input: {
     trialsStarted: series(), trialsConverted: series(), trialsCanceled: series(),
     newMrr: series(), expansion: series(), contraction: series(), churned: series(),
     charged: series(), gross: series(), net: series(), fee: series(), refunded: series(), credit: series(),
+    deactivations: series(), reactivations: series(), uninstallsInactive: series(), canceledInactive: series(), churnedInactive: series(),
   }
   // Stocks as running changes: +1 on the day a thing starts, -1 on the day it ends.
   const s = { installs: series(), subs: series(), mrr: series(), trialSubs: series(), trialMrr: series() }
@@ -484,6 +524,11 @@ function buildDaily(input: {
     if (i.uninstalledAt) s.installs[at(i.uninstalledAt.getTime())]--
   }
   for (const d of uninstallDates) f.uninstalls[at(d.getTime())]++
+  for (const d of inactiveUninstallDates) f.uninstallsInactive[at(d.getTime())]++
+  for (const e of sorted) {
+    if (e.type === EVENT.DEACTIVATED) f.deactivations[at(e.occurredAt.getTime())]++
+    else if (e.type === EVENT.REACTIVATED) f.reactivations[at(e.occurredAt.getTime())]++
+  }
 
   // A shop's periods in order, so a plan change can look at the period before and after it.
   const byShop = new Map<string, Period[]>()
@@ -538,6 +583,10 @@ function buildDaily(input: {
         if (!handedOverToNext) {
           f.churned[at(end)] += p.monthlyCents
           f.canceledSubs[at(end)]++
+          if (lostToInactiveStore(p)) {
+            f.churnedInactive[at(end)] += p.monthlyCents
+            f.canceledInactive[at(end)]++
+          }
         }
       }
     })
@@ -588,6 +637,11 @@ function buildDaily(input: {
       feeCents: f.fee[d],
       refundedCents: f.refunded[d],
       creditCents: f.credit[d],
+      deactivations: f.deactivations[d],
+      reactivations: f.reactivations[d],
+      uninstallsStoreInactive: f.uninstallsInactive[d],
+      canceledSubsStoreInactive: f.canceledInactive[d],
+      churnedMrrStoreInactiveCents: f.churnedInactive[d],
       activeInstalls: run.installs,
       activeSubs: run.subs,
       trialSubs: run.trialSubs,

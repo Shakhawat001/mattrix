@@ -246,6 +246,13 @@ export const dailyMetrics = pgTable(
     feeCents: cents("fee_cents").notNull().default(0),
     refundedCents: cents("refunded_cents").notNull().default(0),
     creditCents: cents("credit_cents").notNull().default(0),
+    /** Store billing accounts Shopify deactivated (closed, paused or unpaid) and reactivated. */
+    deactivations: integer("deactivations").notNull().default(0),
+    reactivations: integer("reactivations").notNull().default(0),
+    /** The parts of uninstalls, canceled subscribers and churned MRR that were the store going inactive. */
+    uninstallsStoreInactive: integer("uninstalls_store_inactive").notNull().default(0),
+    canceledSubsStoreInactive: integer("canceled_subs_store_inactive").notNull().default(0),
+    churnedMrrStoreInactiveCents: cents("churned_mrr_store_inactive_cents").notNull().default(0),
     // stocks
     activeInstalls: integer("active_installs").notNull().default(0),
     /** Paying subscribers. A free trial is not one until it converts. */
