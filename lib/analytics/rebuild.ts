@@ -1,7 +1,7 @@
 import { asc, eq, isNull, lt, or } from "drizzle-orm"
 import type { Db } from "@/lib/db/client"
 import { apps, dailyMetrics, events, installs, subscriptions, trials } from "@/lib/db/schema"
-import { derive } from "./derive"
+import { DERIVE_VERSION, derive } from "./derive"
 
 const CHUNK = 1000
 
@@ -49,20 +49,21 @@ export async function rebuildApp(db: Db, appId: string, now: Date = new Date()):
     await insertChunked(result.trials, (chunk) => tx.insert(trials).values(chunk.map((r) => ({ ...r, appId }))))
     await insertChunked(result.daily, (chunk) => tx.insert(dailyMetrics).values(chunk.map((r) => ({ ...r, appId }))))
 
-    await tx.update(apps).set({ dirty: false, derivedAt: now }).where(eq(apps.id, appId))
+    await tx.update(apps).set({ dirty: false, derivedAt: now, deriveVersion: DERIVE_VERSION }).where(eq(apps.id, appId))
   })
 }
 
 /**
- * Rebuilds the apps that gained events, and the ones not built since the start of
- * today, so every chart has a row for today even on a quiet day.
+ * Rebuilds the apps that gained events, the ones not built since the start of today (so
+ * every chart has a row for today even on a quiet day), and the ones built with an older
+ * version of the rules.
  */
 export async function rebuildStaleApps(db: Db, now: Date = new Date()): Promise<number> {
   const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
   const stale = await db
     .select({ id: apps.id })
     .from(apps)
-    .where(or(eq(apps.dirty, true), isNull(apps.derivedAt), lt(apps.derivedAt, startOfToday)))
+    .where(or(eq(apps.dirty, true), isNull(apps.derivedAt), lt(apps.derivedAt, startOfToday), lt(apps.deriveVersion, DERIVE_VERSION)))
   for (const app of stale) await rebuildApp(db, app.id, now)
   return stale.length
 }

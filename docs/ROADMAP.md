@@ -29,7 +29,7 @@ What we build next, in order. Written 24 November 2026. Tick an item in the same
 
 ### 1.1 Rebuild when the rules change
 
-- [ ] `DERIVE_VERSION` in `lib/analytics/derive.ts`, stored per app. The worker rebuilds any app built with an older version, so a deploy that changes a rule recomputes history.
+- [x] `DERIVE_VERSION` in `lib/analytics/derive.ts`, stored per app. The worker rebuilds any app built with an older version, so a deploy that changes a rule recomputes history.
 
 ### 1.2 Exclude shops
 

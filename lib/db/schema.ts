@@ -78,6 +78,8 @@ export const apps = pgTable(
     /** New events arrived since the derived tables were last built. */
     dirty: boolean("dirty").notNull().default(true),
     derivedAt: tz("derived_at"),
+    /** The DERIVE_VERSION (lib/analytics/derive.ts) the derived tables were built with. 0 is from before versions were kept. */
+    deriveVersion: integer("derive_version").notNull().default(0),
     createdAt: tz("created_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("apps_connection_gid_uq").on(t.connectionId, t.gid)],

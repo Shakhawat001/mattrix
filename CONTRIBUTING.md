@@ -48,11 +48,11 @@ Without `TEST_DATABASE_URL` the integration tests are skipped, not failed. They 
 
 ## Changing the database
 
-Edit `lib/db/schema.ts`, then `pnpm db:generate` and commit the new SQL in `drizzle/`. Derived and rollup tables can be rebuilt from `events`, so a change to how a number is computed needs no data migration: the next rebuild applies it.
+Edit `lib/db/schema.ts`, then `pnpm db:generate` and commit the new SQL in `drizzle/`. Migrations only add: new tables, and new columns that are nullable or have a default. `events` is never dropped or rewritten. Derived and rollup tables can be rebuilt from `events`, so a change to how a number is computed needs no data migration: bump `DERIVE_VERSION` in `lib/analytics/derive.ts` and the worker rebuilds every app after the deploy.
 
 ## Changing a number
 
-The metric rules in [docs/METRICS.md](docs/METRICS.md) are the contract. A change to one needs a test with a history worked out by hand, in `tests/derive.test.ts` for the event rules or `tests/aggregate.test.ts` for the arithmetic. If a result surprises you, write down by hand what it should be before deciding which side is wrong.
+The metric rules in [docs/METRICS.md](docs/METRICS.md) are the contract. A change to one needs a test with a history worked out by hand, in `tests/derive.test.ts` for the event rules or `tests/aggregate.test.ts` for the arithmetic, and a bump of `DERIVE_VERSION` if what `derive()` returns changes. If a result surprises you, write down by hand what it should be before deciding which side is wrong.
 
 ## Style
 

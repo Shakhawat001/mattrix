@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { derive, monthlyCents, type DailyRow, type RawEvent } from "@/lib/analytics/derive"
+import { DERIVE_VERSION, derive, monthlyCents, type DailyRow, type RawEvent } from "@/lib/analytics/derive"
 
 const at = (iso: string) => new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso)
 
@@ -70,6 +70,13 @@ const history: RawEvent[] = [
 
 const result = derive(history, NOW)
 const day = (date: string): DailyRow => dayOf(result, date)
+
+describe("DERIVE_VERSION", () => {
+  it("is a whole number above 0, which marks apps built before versions were kept", () => {
+    expect(Number.isInteger(DERIVE_VERSION)).toBe(true)
+    expect(DERIVE_VERSION).toBeGreaterThan(0)
+  })
+})
 
 describe("monthlyCents", () => {
   it("spreads a yearly price over twelve months and leaves others alone", () => {

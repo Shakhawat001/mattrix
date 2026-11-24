@@ -18,6 +18,7 @@ import {
   earliestDate,
 } from "@/lib/analytics/queries"
 import { cohortRetention } from "@/lib/analytics/aggregate"
+import { DERIVE_VERSION } from "@/lib/analytics/derive"
 import { rebuildApp, rebuildStaleApps } from "@/lib/analytics/rebuild"
 import type { Database } from "@/lib/db/client"
 import { apps, connections, dailyMetrics, events, installs, subscriptions, syncRuns, trials } from "@/lib/db/schema"
@@ -144,6 +145,24 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
       expect(await rebuildStaleApps(database.db, new Date("2026-02-11T01:00:00Z"))).toBe(1)
       const rows = await database.db.select().from(dailyMetrics).where(eq(dailyMetrics.date, "2026-02-11"))
       expect(rows).toHaveLength(1)
+    })
+
+    it("rebuilds an app built with an older version of the rules, and leaves a newer one alone", async () => {
+      await load()
+      const version = async () => (await database.db.select({ v: apps.deriveVersion }).from(apps))[0].v
+      expect(await version()).toBe(DERIVE_VERSION)
+      expect(await rebuildStaleApps(database.db, NOW)).toBe(0)
+
+      // As after a deploy that changed a rule: the rows on file came from the old one.
+      await database.db.update(apps).set({ deriveVersion: DERIVE_VERSION - 1 })
+      await database.db.delete(dailyMetrics)
+      expect(await rebuildStaleApps(database.db, NOW)).toBe(1)
+      expect(await version()).toBe(DERIVE_VERSION)
+      expect(await database.db.select().from(dailyMetrics)).toHaveLength(41)
+
+      // Written by a newer deploy still running alongside this one.
+      await database.db.update(apps).set({ deriveVersion: DERIVE_VERSION + 1 })
+      expect(await rebuildStaleApps(database.db, NOW)).toBe(0)
     })
 
     it("keeps a real app name once it has one, and fills a missing key later", async () => {

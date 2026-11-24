@@ -23,6 +23,13 @@ import { EVENT } from "@/lib/partner/query"
 //     second subscription while one is open, a cancel naming another plan moments after a new one
 //     began, or a cancel followed within minutes by a new subscription are all one plan change.
 
+/**
+ * The version of these rules. Each app stores the version its derived tables were built with, and
+ * the worker rebuilds any app built with an older one, so a deploy that changes a rule recomputes
+ * all of history. Bump it with every change to what derive() returns.
+ */
+export const DERIVE_VERSION = 1
+
 const DAY_MS = 86_400_000
 /** A cancel and a new subscription this close together are one plan change, not a loss and a new sale. */
 const REPLACE_WINDOW_MS = 10 * 60_000
