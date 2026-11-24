@@ -14,7 +14,7 @@ AppMetrics is a self-hosted, read-only metrics dashboard for Shopify app develop
 
 - Check with `pnpm typecheck`, `pnpm lint` and `pnpm test`. Integration tests need `TEST_DATABASE_URL` (see `CONTRIBUTING.md`) and wipe that database.
 - Money is cents. Days are UTC `YYYY-MM-DD` strings. A figure with nothing to divide by is `null`, shown as n/a, never 0 or NaN.
-- Anything that reads or changes data calls `requireSession()` itself. The proxy only checks that a cookie exists, and a layout is not a gate either (Next.js can render a page without its layouts), so pages read apps through `getApps()` / `requireVisibleApp()`, which check the session, and every page also calls `requireSession()`.
+- Anything that reads or changes data calls `requireSession()` itself. The proxy only checks that a cookie exists, and a layout is not a gate either (Next.js can render a page without its layouts), so pages read apps through `getApps()` / `requireVisibleApp()`, which check the session, and every page also calls `requireSession()`. The one exception is the MCP endpoint, `/api/mcp`: it checks its API token instead (`lib/mcp/auth.ts`), and its tools read only through `ctx.read()`, a read-only transaction (`lib/mcp/context.ts`).
 - Raw SQL (`db.execute`) returns timestamps as text, because Drizzle turns the driver's date parsing off. Read them with `lib/db/timestamps.ts`.
 - Rates such as churn and retention look at the shops that were there at the start of the range (`getRetention`), never at flows divided by a starting stock.
 - Never print or log a token, a password or a session. The Partner API is read-only: queries, never mutations.

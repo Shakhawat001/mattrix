@@ -9,7 +9,8 @@ import { NextResponse, type NextRequest } from "next/server"
 //      handler checks the session itself (lib/auth/dal.ts).
 
 const COOKIE_NAMES = ["__Host-am_session", "am_session"]
-const PUBLIC_PATHS = new Set(["/login", "/api/health"])
+// /api/mcp needs no cookie: it checks its own API token (lib/mcp/auth.ts).
+const PUBLIC_PATHS = new Set(["/login", "/api/health", "/api/mcp"])
 
 function httpsDeployment(): boolean {
   const explicit = process.env.COOKIE_SECURE?.trim().toLowerCase()

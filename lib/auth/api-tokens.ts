@@ -122,6 +122,13 @@ export async function revokeApiToken(db: Db, id: string, now: Date = new Date())
   return revoked.length > 0
 }
 
+export type ApiCall = { tokenId: string; tool: string; ok: boolean; durationMs: number }
+
+/** One row in the call log: what a request asked for, whether it was answered without an error, and how long it took. */
+export async function recordApiCall(db: Db, call: ApiCall, at: Date = new Date()): Promise<void> {
+  await db.insert(apiCalls).values({ tokenId: call.tokenId, at, tool: call.tool, ok: call.ok, durationMs: Math.max(0, Math.round(call.durationMs)) })
+}
+
 /** The worker's hourly tidy-up: the call log keeps 30 days. */
 export async function purgeOldApiCalls(db: Db, now: Date = new Date()): Promise<void> {
   await db.delete(apiCalls).where(lt(apiCalls.at, new Date(now.getTime() - KEEP_API_CALLS_DAYS * DAY_MS)))

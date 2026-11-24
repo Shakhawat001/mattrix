@@ -48,6 +48,10 @@ Open http://localhost:3000 and sign in. The demo is three invented apps with a y
 
 [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) covers deploying with Docker Compose and on Coolify, creating the Partner API token, putting it behind HTTPS, updating and backing up.
 
+## AI agents (MCP)
+
+Connect OpenCode, Claude Code or another MCP client to `/api/mcp` with an API token from Settings, and ask your agent about your numbers. It is read-only, rate limited and logged, and a token can hide your shops' domains. Setup, the tools so far and a note on AI data use: [docs/MCP.md](docs/MCP.md).
+
 ## How it works
 
 Three containers: `web` (the dashboard), `worker` (the only thing that talks to Shopify) and `db` (Postgres), plus a small `backup` container that dumps the database every 12 hours.

@@ -59,5 +59,5 @@ The metric rules in [docs/METRICS.md](docs/METRICS.md) are the contract. A chang
 - Plain, direct English in the UI, the docs and the commit messages. Short sentences.
 - Never ship a chart color that was not checked. Series colors are the eight hues in `app/globals.css`, in that order; do not add a ninth or reorder them.
 - A number with nothing to divide by is `null`, shown as n/a, never 0 or NaN.
-- Anything that reads or changes data starts with `requireSession()`, even when the page around it is already behind the login.
+- Anything that reads or changes data starts with `requireSession()`, even when the page around it is already behind the login. The MCP endpoint checks its API token instead (`lib/mcp/auth.ts`).
 - Never log a token, a password or a session. If you add a log line near one, add a test.

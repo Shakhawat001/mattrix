@@ -21,14 +21,18 @@ Please report a vulnerability privately, not in a public issue. Use the reposito
 - Sessions end after 24 hours without use, or 7 days in all. You can end them all from Settings.
 - The cookie is `HttpOnly`, `SameSite=Lax`, `Secure`, and uses the `__Host-` prefix over https.
 
-**API tokens**
+**API tokens and the MCP endpoint**
 - For AI agents. A token is `amt_` and 256 random bits, shown once, when it is created. The database stores only an HMAC of it, keyed with `SESSION_SECRET` as sessions are, so a copy of the database cannot be turned into a token. Changing `SESSION_SECRET` ends every token, as it ends every session.
 - A token expires after 30, 90 or 365 days, or never, as chosen when it is created, and can be revoked in Settings at any moment. At most 20 are active at once. Its last use is recorded, at most once a minute.
-- A token can be set to hide shop domains, for an agent that should see a stable alias in place of each shop's address.
-- Nothing accepts tokens yet. The read-only MCP endpoint that will is next on the roadmap.
+- Only the MCP endpoint, `/api/mcp`, accepts tokens, and only as `Authorization: Bearer <token>`. A token in the URL is ignored, because URLs end up in logs. A missing, unknown, revoked or expired token gets 401 with a `WWW-Authenticate: Bearer` challenge. A request with an `Origin` header, which means a web page sent it, gets 403. See [docs/MCP.md](docs/MCP.md).
+- Read-only by construction: every tool reads inside a `READ ONLY` database transaction, so a write fails even if a tool had a bug, and each statement in it stops after 15 seconds. The endpoint never calls Shopify. Apps hidden in Settings are left out, as on the dashboard.
+- At most 120 requests a minute per token, counted in memory. Past that the answer is 429 with `Retry-After`.
+- Every request a token makes goes into a call log: the tool or method, whether it succeeded, and how long it took, kept for 30 days. Requests refused by the rate limit are not logged, so a runaway agent cannot fill the table. The token is never logged, and an error a tool hits stays in the server log; the agent gets a generic message.
+- A token can be set to hide shop domains. Every shop domain in its answers is then replaced by `shop_` and the first 10 hex characters of an HMAC of the domain, keyed with `SESSION_SECRET`: the same alias every time, which the tools also take as input. myshopify.com addresses inside text merchants wrote are replaced too. This keeps the addresses from the agent and its AI provider; the numbers, and what merchants wrote, still reach them.
+- Text merchants wrote, such as uninstall comments, is only ever sent in fields named `merchant_text_untrusted`, and agents are told to treat it as data, never as instructions, since anyone can install an app and write anything there.
 
 **Access control**
-- Next.js's proxy only checks that a cookie exists, so it is a convenience, not a gate. A layout is not a gate either: Next.js can render a page without running the layouts above it. The session is therefore checked against the database in the data layer every page reads through, at the top of every page, in every Server Action and in every route handler. An app id in a URL is only read through the list of apps that are not hidden.
+- Next.js's proxy only checks that a cookie exists, so it is a convenience, not a gate. A layout is not a gate either: Next.js can render a page without running the layouts above it. The session is therefore checked against the database in the data layer every page reads through, at the top of every page, in every Server Action and in every route handler. The one exception is `/api/mcp`, which needs no cookie and checks its API token instead. An app id in a URL is only read through the list of apps that are not hidden.
 - A page's database query is stopped after 30 seconds, so slow requests cannot hold the connection pool.
 - Server Actions check the request's `Origin` (Next.js does this), and validate every input with a schema before using it.
 - CSV exports require a session, only cover apps that are not hidden, and make text safe for spreadsheets (a cell starting with `=`, `+`, `-` or `@` is prefixed so it is not run as a formula).
@@ -59,6 +63,7 @@ Please report a vulnerability privately, not in a public issue. Use the reposito
 
 - There is no second factor. If someone learns your password they are in. Use a long one.
 - There is one user. There are no roles.
+- An API token is a bearer token: whoever holds it can read your numbers until it expires or is revoked. Keep it in an environment variable or a password manager, not in a file you commit.
 - The app and the worker connect to Postgres as the database's owner, which in the bundled container is a superuser. No SQL injection is known (every value is passed as a parameter), but a separate, less privileged role would limit the damage of one. It is planned.
 - Anyone who can read the environment variables of the containers can read the secrets, and with `ENCRYPTION_KEY` and the database, the tokens. Protect the host and your deployment platform's account accordingly.
 - It cannot protect the Partner API token from Shopify's side: if the token leaks, delete the client in your Partner organization.

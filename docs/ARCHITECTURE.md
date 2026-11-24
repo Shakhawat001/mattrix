@@ -12,7 +12,7 @@ Shopify Partner API
                            daily numbers, sessions       database)
 ```
 
-- **web** serves the dashboard. It reads the database and nothing else. It never calls Shopify, so a slow or failing Shopify cannot slow a page down, and the Partner API token is never in the web process's request path.
+- **web** serves the dashboard, and the read-only MCP endpoint for AI agents at `/api/mcp` ([MCP.md](MCP.md)). It reads the database and nothing else. It never calls Shopify, so a slow or failing Shopify cannot slow a page down, and the Partner API token is never in the web process's request path.
 - **worker** is the only process that talks to Shopify. It syncs on a schedule, or when Settings asks, and keeps the derived tables and daily numbers current. It decrypts a token only to make a request.
 - **db** is Postgres 17. It is not published outside the Compose network.
 - **backup** uses the same Postgres image to dump the database every 12 hours into its own volume, keeping 14 days. See [SELF_HOSTING.md](SELF_HOSTING.md#7-day-to-day).
@@ -70,6 +70,7 @@ lib/analytics/  derive, rebuild, aggregate, queries, matrix, view builders, metr
                 shop timeline, data health, MRR movers
 lib/partner/    query, client, parse, sync, store
 lib/auth/       password, sessions, API tokens, rate limit, cookies, the data access layer
+lib/mcp/        the MCP endpoint: token check, rate limit, read-only context, answers, tools/
 lib/db/         schema, client, migrations runner
 worker/         the background process
 cli/            migrate, seed-demo, generate-secrets, hash-password, check-env, probe
@@ -79,4 +80,4 @@ tests/          unit tests; tests/integration needs Postgres
 
 ## Tests
 
-Unit tests cover the pure code (the derive engine against a hand-computed history, the KPI maths, ranges and buckets, formatting, CSV, the Partner API client and parser, environment validation, password hashing). Integration tests run the real SQL against Postgres: sessions, API tokens, login throttling, storing events, rebuilding, every query, the retention of the starting group, and the demo data's invariants. See [CONTRIBUTING.md](../CONTRIBUTING.md).
+Unit tests cover the pure code (the derive engine against a hand-computed history, the KPI maths, ranges and buckets, formatting, CSV, the Partner API client and parser, environment validation, password hashing). Integration tests run the real SQL against Postgres: sessions, API tokens, login throttling, storing events, rebuilding, every query, the retention of the starting group, the demo data's invariants, and the MCP endpoint over HTTP. See [CONTRIBUTING.md](../CONTRIBUTING.md).

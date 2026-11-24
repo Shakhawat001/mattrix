@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, gte, ilike, inArray, lt, sql, type SQL } from "drizzle-orm"
-import type { Db } from "@/lib/db/client"
+import type { Db, Queryable } from "@/lib/db/client"
 import { apps, connections, dailyMetrics, events, installs, syncRuns } from "@/lib/db/schema"
 import { parseTimestamp, parseTimestampOrNull } from "@/lib/db/timestamps"
 import { noRetention, type DayRow, type Retention } from "./aggregate"
@@ -46,7 +46,7 @@ export type AppInfo = {
   derivedAt: Date | null
 }
 
-export async function listApps(db: Db): Promise<AppInfo[]> {
+export async function listApps(db: Queryable): Promise<AppInfo[]> {
   const rows = await db
     .select({
       id: apps.id,
@@ -454,7 +454,7 @@ export type ConnectionOverview = {
   runs: { id: string; trigger: string; startedAt: Date; ok: boolean | null; eventsInserted: number; error: string | null; durationMs: number | null }[]
 }
 
-export async function getConnections(db: Db): Promise<ConnectionOverview[]> {
+export async function getConnections(db: Queryable): Promise<ConnectionOverview[]> {
   const rows = await db.select().from(connections).orderBy(asc(connections.createdAt))
   const counts = await db.execute<{ connection_id: string; apps: number; events: number }>(sql`
     SELECT a.connection_id, count(DISTINCT a.id)::int AS apps, count(e.id)::int AS events
