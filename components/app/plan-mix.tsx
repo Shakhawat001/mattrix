@@ -15,44 +15,46 @@ export function PlanMix({ rows, date }: { rows: PlanMixRow[]; date: string }) {
         <CardTitle>Plans</CardTitle>
         <CardDescription>Paying subscribers at the end of {formatDate(date)}. A yearly plan counts at a twelfth of its price.</CardDescription>
       </CardHeader>
-      <CardContent className="px-0">
+      <CardContent>
         {rows.length === 0 ? (
-          <p className="px-(--card-spacing) py-2 text-sm text-muted-foreground">No paying subscribers on this day.</p>
+          <p className="py-2 text-sm text-muted-foreground">No paying subscribers on this day.</p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Plan</TableHead>
-                <TableHead>Billed</TableHead>
-                <TableHead className="text-right">Subscribers</TableHead>
-                <TableHead className="text-right">MRR</TableHead>
-                <TableHead className="text-right">Share</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((r) => (
-                <TableRow key={`${r.planHandle}-${r.billingPeriod}`}>
-                  <TableCell className="font-medium">{r.planHandle}</TableCell>
-                  <TableCell className="text-muted-foreground">{r.billingPeriod}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatInt(r.subscribers)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatMoney(r.mrrCents)}</TableCell>
-                  <TableCell className="text-right text-muted-foreground tabular-nums">{mrr > 0 ? formatPercent(r.mrrCents / mrr, 0) : "n/a"}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-            {rows.length > 1 ? (
-              <TableFooter>
+          <div className="overflow-hidden rounded-lg border">
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-muted">
                 <TableRow>
-                  <TableCell colSpan={2} className="text-xs font-semibold tracking-wider uppercase">
-                    Total
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{formatInt(subscribers)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatMoney(mrr)}</TableCell>
-                  <TableCell />
+                  <TableHead>Plan</TableHead>
+                  <TableHead>Billed</TableHead>
+                  <TableHead className="text-right">Subscribers</TableHead>
+                  <TableHead className="text-right">MRR</TableHead>
+                  <TableHead className="text-right">Share</TableHead>
                 </TableRow>
-              </TableFooter>
-            ) : null}
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {rows.map((r) => (
+                  <TableRow key={`${r.planHandle}-${r.billingPeriod}`}>
+                    <TableCell className="font-medium">{r.planHandle}</TableCell>
+                    <TableCell className="text-muted-foreground">{r.billingPeriod}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatInt(r.subscribers)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatMoney(r.mrrCents)}</TableCell>
+                    <TableCell className="text-right text-muted-foreground tabular-nums">{mrr > 0 ? formatPercent(r.mrrCents / mrr, 0) : "n/a"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+              {rows.length > 1 ? (
+                <TableFooter>
+                  <TableRow>
+                    <TableCell colSpan={2} className="font-medium">
+                      Total
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{formatInt(subscribers)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatMoney(mrr)}</TableCell>
+                    <TableCell />
+                  </TableRow>
+                </TableFooter>
+              ) : null}
+            </Table>
+          </div>
         )}
       </CardContent>
     </Card>

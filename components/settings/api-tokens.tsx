@@ -51,7 +51,7 @@ export function useNewToken() {
 function Field({ label, htmlFor, hint, children }: { label: string; htmlFor?: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
-      <Label htmlFor={htmlFor} className="text-xs tracking-wider text-muted-foreground uppercase">
+      <Label htmlFor={htmlFor}>
         {label}
       </Label>
       {children}
@@ -168,9 +168,9 @@ function NewToken({ name, token, onDone }: { name: string; token: string; onDone
 function TokenList({ tokens }: { tokens: ApiTokenView[] }) {
   if (tokens.length === 0) return <p className="text-sm text-muted-foreground">No tokens yet.</p>
   return (
-    <div className="-mx-(--card-spacing) overflow-x-auto">
+    <div className="overflow-hidden rounded-lg border">
       <Table>
-        <TableHeader>
+        <TableHeader className="sticky top-0 z-10 bg-muted">
           <TableRow>
             <TableHead>Name</TableHead>
             <TableHead>Token</TableHead>

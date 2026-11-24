@@ -102,13 +102,13 @@ export function DateRangePicker({ selection, today, onChange }: Props) {
             />
             <div className="flex flex-wrap items-end gap-3 border-t p-3">
               <div className="flex flex-col gap-1">
-                <Label htmlFor="range-from" className="text-xs tracking-wider text-muted-foreground uppercase">
+                <Label htmlFor="range-from">
                   From
                 </Label>
                 <Input id="range-from" type="date" value={draftFrom} max={today} onChange={(e) => typed("from", e.target.value)} className="h-9 w-40" />
               </div>
               <div className="flex flex-col gap-1">
-                <Label htmlFor="range-to" className="text-xs tracking-wider text-muted-foreground uppercase">
+                <Label htmlFor="range-to">
                   To
                 </Label>
                 <Input id="range-to" type="date" value={draftTo} max={today} onChange={(e) => typed("to", e.target.value)} className="h-9 w-40" />

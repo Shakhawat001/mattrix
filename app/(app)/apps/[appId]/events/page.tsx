@@ -4,7 +4,6 @@ import { PageHeader } from "@/components/app/page-header"
 import { PageNav } from "@/components/app/page-nav"
 import { ParamSelect, SearchBox } from "@/components/app/table-controls"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { eventLabel, reasonLabel } from "@/lib/analytics/labels"
 import type { SearchParams } from "@/lib/analytics/page-params"
@@ -60,42 +59,40 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
         <ParamSelect name="type" value={type ?? "any"} options={typeOptions} label="Event type" className="min-w-44" />
       </div>
 
-      <Card>
-        <CardContent className="px-0">
-          <Table>
-            <TableHeader>
+      <div className="overflow-hidden rounded-lg border">
+        <Table>
+          <TableHeader className="sticky top-0 z-10 bg-muted">
+            <TableRow>
+              <TableHead>Time</TableHead>
+              <TableHead>Event</TableHead>
+              <TableHead>Shop</TableHead>
+              <TableHead>Details</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 ? (
               <TableRow>
-                <TableHead>Time</TableHead>
-                <TableHead>Event</TableHead>
-                <TableHead>Shop</TableHead>
-                <TableHead>Details</TableHead>
+                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                  No events match.
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
-                    No events match.
+            ) : (
+              rows.map((e) => (
+                <TableRow key={e.id}>
+                  <TableCell className="text-muted-foreground tabular-nums">{formatDateTime(e.occurredAt)}</TableCell>
+                  <TableCell>
+                    <Badge variant="default">{eventLabel(e.type)}</Badge>
+                  </TableCell>
+                  <TableCell className="font-medium">{e.shop ?? ""}</TableCell>
+                  <TableCell className="max-w-96 truncate text-muted-foreground" title={details(e) || undefined}>
+                    {details(e)}
                   </TableCell>
                 </TableRow>
-              ) : (
-                rows.map((e) => (
-                  <TableRow key={e.id}>
-                    <TableCell className="text-muted-foreground tabular-nums">{formatDateTime(e.occurredAt)}</TableCell>
-                    <TableCell>
-                      <Badge variant="default">{eventLabel(e.type)}</Badge>
-                    </TableCell>
-                    <TableCell className="font-medium">{e.shop ?? ""}</TableCell>
-                    <TableCell className="max-w-96 truncate text-muted-foreground" title={details(e) || undefined}>
-                      {details(e)}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
       <PageNav page={page} pageSize={PAGE_SIZE} total={total} hrefFor={hrefFor} />
     </>

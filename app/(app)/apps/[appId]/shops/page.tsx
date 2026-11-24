@@ -6,7 +6,6 @@ import { PageHeader } from "@/components/app/page-header"
 import { PageNav } from "@/components/app/page-nav"
 import { ParamSelect, SearchBox } from "@/components/app/table-controls"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { listExcludedShops } from "@/lib/analytics/excluded-shops"
 import { reasonLabel } from "@/lib/analytics/labels"
@@ -59,64 +58,62 @@ export default async function ShopsPage({ params, searchParams }: { params: Prom
         <ParamSelect name="sort" value={sort} options={SORT} label="Sort by" />
       </div>
 
-      <Card>
-        <CardContent className="px-0">
-          <Table>
-            <TableHeader>
+      <div className="overflow-hidden rounded-lg border">
+        <Table>
+          <TableHeader className="sticky top-0 z-10 bg-muted">
+            <TableRow>
+              <TableHead>Shop</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Plan</TableHead>
+              <TableHead className="text-right">MRR</TableHead>
+              <TableHead className="text-right">Charged in all</TableHead>
+              <TableHead className="text-right">Installs</TableHead>
+              <TableHead>First installed</TableHead>
+              <TableHead>Left</TableHead>
+              <TableHead>Reason</TableHead>
+              <TableHead>
+                <span className="sr-only">Exclude</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 ? (
               <TableRow>
-                <TableHead>Shop</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Plan</TableHead>
-                <TableHead className="text-right">MRR</TableHead>
-                <TableHead className="text-right">Charged in all</TableHead>
-                <TableHead className="text-right">Installs</TableHead>
-                <TableHead>First installed</TableHead>
-                <TableHead>Left</TableHead>
-                <TableHead>Reason</TableHead>
-                <TableHead>
-                  <span className="sr-only">Exclude</span>
-                </TableHead>
+                <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
+                  No shops match.
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
-                    No shops match.
+            ) : (
+              rows.map((s) => (
+                <TableRow key={`${s.appId}-${s.shop}`}>
+                  <TableCell className="font-medium">
+                    <Link href={`/apps/${appId}/shops/${encodeURIComponent(s.shop)}${carry}`} className="underline-offset-4 hover:underline">
+                      {s.shop}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={s.installed ? "default" : "secondary"}>{s.installed ? "Installed" : "Uninstalled"}</Badge>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {s.subscribed || s.inTrial ? `${s.planHandle ?? "Plan"}, ${s.billingPeriod === "ANNUAL" ? "yearly" : "monthly"}${s.inTrial ? ", in trial" : ""}` : s.installed ? "Free" : "None"}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{s.subscribed ? formatMoney(s.monthlyCents) : "n/a"}</TableCell>
+                  <TableCell className="text-right tabular-nums">{s.charged > 0 ? formatMoney(s.charged) : "n/a"}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatInt(s.installs)}</TableCell>
+                  <TableCell className="text-muted-foreground">{formatDate(s.firstInstalledAt.toISOString().slice(0, 10))}</TableCell>
+                  <TableCell className="text-muted-foreground">{s.uninstalledAt ? formatDate(s.uninstalledAt.toISOString().slice(0, 10)) : ""}</TableCell>
+                  <TableCell className="max-w-56 truncate text-muted-foreground" title={s.reason ?? undefined}>
+                    {s.reason ? s.reason.split(",").map((r) => reasonLabel(r.trim())).join(", ") : ""}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <ExcludeShopButton shop={s.shop} excluded={excluded.has(s.shop)} />
                   </TableCell>
                 </TableRow>
-              ) : (
-                rows.map((s) => (
-                  <TableRow key={`${s.appId}-${s.shop}`}>
-                    <TableCell className="font-medium">
-                      <Link href={`/apps/${appId}/shops/${encodeURIComponent(s.shop)}${carry}`} className="underline-offset-4 hover:underline">
-                        {s.shop}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={s.installed ? "default" : "secondary"}>{s.installed ? "Installed" : "Uninstalled"}</Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {s.subscribed || s.inTrial ? `${s.planHandle ?? "Plan"}, ${s.billingPeriod === "ANNUAL" ? "yearly" : "monthly"}${s.inTrial ? ", in trial" : ""}` : s.installed ? "Free" : "None"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">{s.subscribed ? formatMoney(s.monthlyCents) : "n/a"}</TableCell>
-                    <TableCell className="text-right tabular-nums">{s.charged > 0 ? formatMoney(s.charged) : "n/a"}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatInt(s.installs)}</TableCell>
-                    <TableCell className="text-muted-foreground">{formatDate(s.firstInstalledAt.toISOString().slice(0, 10))}</TableCell>
-                    <TableCell className="text-muted-foreground">{s.uninstalledAt ? formatDate(s.uninstalledAt.toISOString().slice(0, 10)) : ""}</TableCell>
-                    <TableCell className="max-w-56 truncate text-muted-foreground" title={s.reason ?? undefined}>
-                      {s.reason ? s.reason.split(",").map((r) => reasonLabel(r.trim())).join(", ") : ""}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <ExcludeShopButton shop={s.shop} excluded={excluded.has(s.shop)} />
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
       <PageNav page={page} pageSize={PAGE_SIZE} total={total} hrefFor={hrefFor} />
     </>

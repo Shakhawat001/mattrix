@@ -12,7 +12,7 @@ const initial: ActionState = {}
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
-      <Label className="text-xs tracking-wider text-muted-foreground uppercase">{label}</Label>
+      <Label>{label}</Label>
       {children}
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
@@ -60,7 +60,7 @@ export function AddConnectionForm({ defaultFrom }: { defaultFrom: string }) {
       </div>
 
       <details className="text-sm">
-        <summary className="cursor-pointer text-xs font-medium tracking-wider text-muted-foreground uppercase">Advanced</summary>
+        <summary className="cursor-pointer text-sm font-medium text-muted-foreground">Advanced</summary>
         <div className="mt-4 grid gap-5 sm:grid-cols-2">
           <Field label="API version" hint="Leave as it is unless Shopify retires it.">
             <Input name="apiVersion" value={apiVersion} onChange={(e) => setApiVersion(e.target.value)} pattern="(\d{4}-\d{2}|unstable)" autoComplete="off" />

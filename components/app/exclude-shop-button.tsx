@@ -45,7 +45,7 @@ export function ExcludeShopButton({ shop, excluded }: { shop: string; excluded: 
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="flex flex-col gap-1">
-          <Label htmlFor={`exclude-note-${shop}`} className="text-xs tracking-wider text-muted-foreground uppercase">
+          <Label htmlFor={`exclude-note-${shop}`}>
             Note, optional
           </Label>
           <Input id={`exclude-note-${shop}`} value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} placeholder="Development store" autoComplete="off" />

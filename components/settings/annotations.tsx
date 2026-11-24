@@ -28,7 +28,7 @@ const initial: ActionState = {}
 function Field({ id, label, hint, children }: { id?: string; label: string; hint: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
-      <Label htmlFor={id} className="text-xs tracking-wider text-muted-foreground uppercase">
+      <Label htmlFor={id}>
         {label}
       </Label>
       {children}
@@ -114,9 +114,9 @@ export function Annotations({ annotations, apps, dates }: { annotations: Annotat
           {annotations.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nothing is marked yet.</p>
           ) : (
-            <div className="-mx-(--card-spacing) overflow-x-auto">
+            <div className="overflow-hidden rounded-lg border">
               <Table>
-                <TableHeader>
+                <TableHeader className="sticky top-0 z-10 bg-muted">
                   <TableRow>
                     <TableHead>Date</TableHead>
                     <TableHead>App</TableHead>

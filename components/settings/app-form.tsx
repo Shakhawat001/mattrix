@@ -41,7 +41,7 @@ export function AppForm({ app }: { app: AppFormApp }) {
       <input type="hidden" name="hidden" value={shown ? "false" : "true"} />
 
       <div className="flex min-w-56 flex-1 flex-col gap-1">
-        <Label htmlFor={`name-${app.id}`} className="text-xs tracking-wider text-muted-foreground uppercase">
+        <Label htmlFor={`name-${app.id}`}>
           Name
         </Label>
         <Input id={`name-${app.id}`} name="displayName" value={name} onChange={(e) => setName(e.target.value)} placeholder={app.shopifyName} maxLength={60} autoComplete="off" />
@@ -49,7 +49,7 @@ export function AppForm({ app }: { app: AppFormApp }) {
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label className="text-xs tracking-wider text-muted-foreground uppercase">Color</Label>
+        <Label>Color</Label>
         <div className="flex h-9 items-center gap-3">
           <input
             type="color"

@@ -105,7 +105,7 @@ function TableCard({ title, description, empty, children }: { title: string; des
         <CardTitle>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent className="px-0">{empty ? <p className="px-(--card-spacing) py-2 text-sm text-muted-foreground">{empty}</p> : children}</CardContent>
+      <CardContent>{empty ? <p className="py-2 text-sm text-muted-foreground">{empty}</p> : <div className="overflow-hidden rounded-lg border">{children}</div>}</CardContent>
     </Card>
   )
 }
@@ -114,7 +114,7 @@ export function StaysTable({ stays }: { stays: TimelineStay[] }) {
   return (
     <TableCard title="Stays" description="Each install, to its uninstall." empty={stays.length === 0 ? "No install of this shop is in the data." : null}>
       <Table>
-        <TableHeader>
+        <TableHeader className="sticky top-0 z-10 bg-muted">
           <TableRow>
             <TableHead>Install</TableHead>
             <TableHead>Installed</TableHead>
@@ -149,7 +149,7 @@ export function PeriodsTable({ periods }: { periods: TimelineSubscription[] }) {
       empty={periods.length === 0 ? "This shop has no subscription in the data." : null}
     >
       <Table>
-        <TableHeader>
+        <TableHeader className="sticky top-0 z-10 bg-muted">
           <TableRow>
             <TableHead>Start</TableHead>
             <TableHead>End</TableHead>
@@ -180,7 +180,7 @@ export function TrialsTable({ trials }: { trials: TimelineTrial[] }) {
   return (
     <TableCard title="Free trials" description="A trial converts when it ends with the subscription still open." empty={trials.length === 0 ? "This shop has had no free trial." : null}>
       <Table>
-        <TableHeader>
+        <TableHeader className="sticky top-0 z-10 bg-muted">
           <TableRow>
             <TableHead>Start</TableHead>
             <TableHead>End</TableHead>

@@ -52,14 +52,14 @@ export function ExcludedShops({ shops }: { shops: ExcludedShopItem[] }) {
         <CardContent className="flex flex-col gap-5">
           <form action={action} className="flex flex-wrap items-end gap-x-6 gap-y-4">
             <div className="flex min-w-56 flex-1 flex-col gap-1">
-              <Label htmlFor="excluded-shop" className="text-xs tracking-wider text-muted-foreground uppercase">
+              <Label htmlFor="excluded-shop">
                 Shop
               </Label>
               <Input id="excluded-shop" name="shop" value={shop} onChange={(e) => setShop(e.target.value)} required maxLength={300} placeholder="my-dev-store.myshopify.com" autoComplete="off" spellCheck={false} />
               <p className="text-xs text-muted-foreground">Its myshopify.com address, as the shop list shows it. The handle alone works too.</p>
             </div>
             <div className="flex min-w-56 flex-1 flex-col gap-1">
-              <Label htmlFor="excluded-note" className="text-xs tracking-wider text-muted-foreground uppercase">
+              <Label htmlFor="excluded-note">
                 Note
               </Label>
               <Input id="excluded-note" name="note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} placeholder="Development store" autoComplete="off" />
@@ -79,9 +79,9 @@ export function ExcludedShops({ shops }: { shops: ExcludedShopItem[] }) {
           {shops.length === 0 ? (
             <p className="text-sm text-muted-foreground">No shops are excluded. Every shop counts.</p>
           ) : (
-            <div className="-mx-(--card-spacing) overflow-x-auto">
+            <div className="overflow-hidden rounded-lg border">
               <Table>
-                <TableHeader>
+                <TableHeader className="sticky top-0 z-10 bg-muted">
                   <TableRow>
                     <TableHead>Shop</TableHead>
                     <TableHead>Note</TableHead>

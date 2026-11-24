@@ -23,6 +23,8 @@ export type MatrixRow = {
 }
 
 const TONE = { good: "text-(color:--delta-good)", bad: "text-(color:--delta-bad)", flat: "text-muted-foreground", none: "text-muted-foreground" }
+// A heading that sorts its column. Dark text on the muted header, with a ring to show focus.
+const BUTTON = "inline-flex items-center gap-1 rounded-sm whitespace-nowrap outline-none hover:underline hover:underline-offset-4 focus-visible:ring-[3px] focus-visible:ring-ring/50"
 
 /**
  * Every app against every metric, with the change against the comparison range under each
@@ -49,7 +51,7 @@ export function MatrixTable({ rows, total, columns, title, description }: { rows
   // The heading sorts on click. Hovering or focusing it shows the full name and what the number means.
   const header = (by: MetricId | "app", label: string, align: "left" | "right", hint?: string) => {
     const button = (
-      <button type="button" onClick={() => sortBy(by)} className={cn("inline-flex items-center gap-1 text-xs font-medium tracking-wider whitespace-nowrap text-muted-foreground uppercase outline-none hover:text-foreground focus-visible:text-foreground", align === "right" && "flex-row-reverse")} />
+      <button type="button" onClick={() => sortBy(by)} className={cn(BUTTON, align === "right" && "flex-row-reverse")} />
     )
     const arrow = sort.by === by ? sort.desc ? <ChevronDownIcon strokeWidth={2.5} className="size-3" aria-hidden /> : <ChevronUpIcon strokeWidth={2.5} className="size-3" aria-hidden /> : <span className="size-3" aria-hidden />
     return (
@@ -57,7 +59,7 @@ export function MatrixTable({ rows, total, columns, title, description }: { rows
         key={by}
         scope="col"
         aria-sort={sort.by === by ? (sort.desc ? "descending" : "ascending") : "none"}
-        className={cn("px-3 py-3 font-medium", align === "right" ? "text-right" : "sticky left-0 z-10 bg-card text-left")}
+        className={cn("h-10 px-3 font-medium", align === "right" ? "text-right" : "sticky left-0 z-10 bg-muted text-left")}
       >
         {hint ? (
           <Tooltip>
@@ -68,7 +70,7 @@ export function MatrixTable({ rows, total, columns, title, description }: { rows
             <TooltipContent className="max-w-64 leading-relaxed">{hint}</TooltipContent>
           </Tooltip>
         ) : (
-          <button type="button" onClick={() => sortBy(by)} className="inline-flex items-center gap-1 text-xs font-medium tracking-wider whitespace-nowrap text-muted-foreground uppercase outline-none hover:text-foreground focus-visible:text-foreground">
+          <button type="button" onClick={() => sortBy(by)} className={BUTTON}>
             {label}
             {arrow}
           </button>
@@ -95,51 +97,54 @@ export function MatrixTable({ rows, total, columns, title, description }: { rows
         <CardTitle>{title}</CardTitle>
         {description ? <CardDescription>{description}</CardDescription> : null}
       </CardHeader>
-      <CardContent className="overflow-x-auto px-0">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b">
-              {header("app", "App", "left")}
-              {columns.map((id) => header(id, shortLabel(id), "right", `${METRICS[id].label}. ${METRICS[id].description}`))}
-              <th scope="col" className="px-3 py-3 text-right text-xs font-medium tracking-wider whitespace-nowrap text-muted-foreground uppercase">
-                MRR trend
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((row) => (
-              <tr key={row.id} className="border-b transition-colors hover:bg-muted/50">
-                <th scope="row" className="sticky left-0 z-10 bg-card px-3 py-2.5 text-left align-top font-medium">
-                  <Link href={row.href} className="flex items-center gap-2.5 whitespace-nowrap hover:underline">
-                    <span className="size-2.5 shrink-0 rounded-full" style={{ background: row.color }} aria-hidden />
-                    {row.label}
-                  </Link>
+      <CardContent>
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 z-10 bg-muted">
+              <tr className="border-b">
+                {header("app", "App", "left")}
+                {columns.map((id) => header(id, shortLabel(id), "right", `${METRICS[id].label}. ${METRICS[id].description}`))}
+                <th scope="col" className="h-10 px-3 text-right font-medium whitespace-nowrap">
+                  MRR trend
                 </th>
-                {columns.map((id) => cell(row, id))}
-                <td className="px-3 py-1.5 text-right align-middle">
-                  <div className="flex justify-end">
-                    <Sparkline values={row.spark} color={row.color} width={80} height={28} />
-                  </div>
-                </td>
               </tr>
-            ))}
-          </tbody>
-          {rows.length > 1 ? (
-            <tfoot>
-              <tr className="bg-muted">
-                <th scope="row" className="sticky left-0 z-10 bg-muted px-3 py-2.5 text-left align-top text-xs font-semibold tracking-wider uppercase">
-                  {total.label}
-                </th>
-                {columns.map((id) => cell(total, id))}
-                <td className="px-3 py-1.5 text-right align-middle">
-                  <div className="flex justify-end">
-                    <Sparkline values={total.spark} width={80} height={28} />
-                  </div>
-                </td>
-              </tr>
-            </tfoot>
-          ) : null}
-        </table>
+            </thead>
+            <tbody className="[&_tr:last-child]:border-0">
+              {sorted.map((row) => (
+                <tr key={row.id} className="border-b transition-colors hover:bg-muted/50">
+                  <th scope="row" className="sticky left-0 z-10 bg-card px-3 py-2.5 text-left align-top font-medium">
+                    <Link href={row.href} className="flex items-center gap-2.5 whitespace-nowrap hover:underline">
+                      <span className="size-2.5 shrink-0 rounded-full" style={{ background: row.color }} aria-hidden />
+                      {row.label}
+                    </Link>
+                  </th>
+                  {columns.map((id) => cell(row, id))}
+                  <td className="px-3 py-1.5 text-right align-middle">
+                    <div className="flex justify-end">
+                      <Sparkline values={row.spark} color={row.color} width={80} height={28} />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            {rows.length > 1 ? (
+              <tfoot>
+                {/* Half muted and opaque, so the sticky cell hides what scrolls under it and the good and bad colors keep 4.5:1. */}
+                <tr className="border-t bg-[color-mix(in_oklab,var(--muted)_50%,var(--card))]">
+                  <th scope="row" className="sticky left-0 z-10 bg-[color-mix(in_oklab,var(--muted)_50%,var(--card))] px-3 py-2.5 text-left align-top font-medium">
+                    {total.label}
+                  </th>
+                  {columns.map((id) => cell(total, id))}
+                  <td className="px-3 py-1.5 text-right align-middle">
+                    <div className="flex justify-end">
+                      <Sparkline values={total.spark} width={80} height={28} />
+                    </div>
+                  </td>
+                </tr>
+              </tfoot>
+            ) : null}
+          </table>
+        </div>
       </CardContent>
     </Card>
   )

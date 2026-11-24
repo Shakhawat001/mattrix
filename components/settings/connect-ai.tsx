@@ -76,7 +76,7 @@ export function ConnectAi({ endpoint }: { endpoint: string | null }) {
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
         <div className="flex flex-col gap-1">
-          <span className="text-xs tracking-wider text-muted-foreground uppercase">Endpoint</span>
+          <span className="text-sm text-muted-foreground">Endpoint</span>
           <div className="flex flex-wrap items-center gap-2">
             <code className="font-mono text-sm wrap-anywhere">{target.url}</code>
             <Button type="button" size="xs" variant="outline" aria-label="Copy the endpoint" onClick={() => copy(target.url)}>
@@ -202,7 +202,7 @@ export function ConnectAi({ endpoint }: { endpoint: string | null }) {
         </Tabs>
 
         <div className="flex flex-col gap-2">
-          <h3 className="text-xs tracking-wider text-muted-foreground uppercase">Try asking</h3>
+          <h3 className="text-sm font-medium">Try asking</h3>
           <ul className="flex list-disc flex-col gap-1 pl-5 text-sm leading-relaxed marker:text-muted-foreground">
             {QUESTIONS.map((question) => (
               <li key={question}>{question}</li>

@@ -20,14 +20,14 @@ export function CohortTable({ rows, unit }: { rows: CohortRow[]; unit: "week" | 
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto rounded-lg border">
         <table className="w-full border-separate border-spacing-0.5 text-xs">
-          <thead>
-            <tr className="text-muted-foreground">
-              <th className="px-2 py-1 text-left font-medium tracking-wider uppercase">Installed</th>
-              <th className="px-2 py-1 text-right font-medium tracking-wider uppercase">Shops</th>
+          <thead className="sticky top-0 z-10">
+            <tr>
+              <th className="bg-muted px-2 py-2 text-left font-medium">Installed</th>
+              <th className="bg-muted px-2 py-2 text-right font-medium">Shops</th>
               {Array.from({ length: periods }, (_, k) => (
-                <th key={k} className="min-w-12 px-1 py-1 text-center font-medium tracking-wider uppercase">
+                <th key={k} className="min-w-12 bg-muted px-1 py-2 text-center font-medium">
                   {name[0]}
                   {k}
                 </th>

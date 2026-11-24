@@ -113,9 +113,9 @@ export default async function SettingsPage() {
                 ) : null}
 
                 {c.runs.length > 0 ? (
-                  <div className="-mx-(--card-spacing) overflow-x-auto">
+                  <div className="overflow-hidden rounded-lg border">
                     <Table>
-                      <TableHeader>
+                      <TableHeader className="sticky top-0 z-10 bg-muted">
                         <TableRow>
                           <TableHead>Recent syncs</TableHead>
                           <TableHead>Started by</TableHead>
