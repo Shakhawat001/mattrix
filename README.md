@@ -51,7 +51,9 @@ Open http://localhost:3000 and sign in. The demo is three invented apps with a y
 
 ## AI agents (MCP)
 
-Connect OpenCode, Claude Code, Cursor, Codex or another MCP client to `/api/mcp` with an API token from Settings, and ask your agent about your numbers. It is read-only, rate limited and logged, and a token can hide your shops' domains. Setup, the tools and a note on AI data use: [docs/MCP.md](docs/MCP.md).
+Connect Claude Code, Claude Desktop, Cursor, OpenCode, Codex or another MCP client to `/api/mcp` with an API token, and ask your agent about your numbers, or start one of the ready-made prompts: a weekly review, a churn investigation, and who to contact now. It is read-only, rate limited and logged, and a token can hide your shops' domains.
+
+To set it up, create a token in **Settings**, under **API tokens**: **Connect an AI**, just below, has each app's setup with your address and that token filled in, ready to copy. The same steps by hand, the tools, the prompts and a note on AI data use: [docs/MCP.md](docs/MCP.md).
 
 ## How it works
 

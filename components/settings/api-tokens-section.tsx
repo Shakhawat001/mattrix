@@ -1,16 +1,21 @@
-import { ApiTokenManager, type ApiTokenView } from "@/components/settings/api-tokens"
+import { headers } from "next/headers"
+import { ApiTokenManager, NewTokenProvider, type ApiTokenView } from "@/components/settings/api-tokens"
+import { ConnectAi } from "@/components/settings/connect-ai"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatDate } from "@/lib/analytics/range"
 import { MAX_ACTIVE_API_TOKENS, listApiTokens } from "@/lib/auth/api-tokens"
 import { requireSession } from "@/lib/auth/dal"
 import { getDb } from "@/lib/db/client"
+import { getEnv } from "@/lib/env"
 import { formatAgo } from "@/lib/format"
+import { endpointUrl } from "@/lib/mcp/connect"
 
 const day = (date: Date) => formatDate(date.toISOString().slice(0, 10))
 
-/** The API tokens part of Settings. It reads the tokens itself, so it checks the session itself. */
+/** The API tokens part of Settings, with the steps to connect an AI. It reads the tokens itself, so it checks the session itself. */
 export async function ApiTokensSection() {
   await requireSession()
+  const endpoint = endpointUrl(await headers(), getEnv())
   const now = new Date()
   const tokens: ApiTokenView[] = (await listApiTokens(getDb())).map((t) => {
     const expired = t.expiresAt !== null && t.expiresAt.getTime() <= now.getTime()
@@ -32,18 +37,21 @@ export async function ApiTokensSection() {
       <h2 id="api-tokens" className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
         API tokens
       </h2>
-      <Card size="sm">
-        <CardHeader>
-          <CardTitle className="text-sm">Tokens for AI agents</CardTitle>
-          <CardDescription className="text-xs">
-            For AI agents that read these numbers. A token is shown once, when you create it, and only a hash of it is stored. Changing SESSION_SECRET ends every token. {active} of{" "}
-            {MAX_ACTIVE_API_TOKENS} active.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ApiTokenManager tokens={tokens} />
-        </CardContent>
-      </Card>
+      <NewTokenProvider>
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle className="text-sm">Tokens for AI agents</CardTitle>
+            <CardDescription className="text-xs">
+              For AI agents that read these numbers. A token is shown once, when you create it, and only a hash of it is stored. Changing SESSION_SECRET ends every token. {active} of{" "}
+              {MAX_ACTIVE_API_TOKENS} active.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ApiTokenManager tokens={tokens} />
+          </CardContent>
+        </Card>
+        <ConnectAi endpoint={endpoint} />
+      </NewTokenProvider>
     </section>
   )
 }

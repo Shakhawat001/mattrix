@@ -100,7 +100,7 @@ What we build next, in order. Written 24 November 2026. Tick an item in the same
 
 ### 2.4 Docs
 
-- [x] `docs/MCP.md`: connecting OpenCode, Claude Code, Cursor and Codex, and a note on AI data use.
+- [x] `docs/MCP.md`: connecting OpenCode, Claude Code, Claude Desktop, Cursor and Codex, and a note on AI data use. The same setup in Settings, with the address and a new token filled in.
 
 ## Phase 3: digest and alerts
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useActionState, useState, useTransition } from "react"
+import { createContext, useActionState, useContext, useState, useTransition } from "react"
 import { toast } from "sonner"
 import { createApiTokenAction, revokeApiTokenAction, type CreateTokenState } from "@/app/(app)/settings/api-token-actions"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
@@ -32,6 +32,22 @@ const EXPIRY = [
 
 const initial: CreateTokenState = {}
 
+type CreatedToken = { name: string; token: string }
+
+const NewTokenContext = createContext<{ created: CreatedToken | null; setCreated: (next: CreatedToken | null) => void } | null>(null)
+
+/** Holds a token just created, for the box that shows it and for the setup in ConnectAi. Done, or leaving the page, forgets it. */
+export function NewTokenProvider({ children }: { children: React.ReactNode }) {
+  const [created, setCreated] = useState<CreatedToken | null>(null)
+  return <NewTokenContext value={{ created, setCreated }}>{children}</NewTokenContext>
+}
+
+export function useNewToken() {
+  const value = useContext(NewTokenContext)
+  if (!value) throw new Error("useNewToken needs a NewTokenProvider around it.")
+  return value
+}
+
 function Field({ label, htmlFor, hint, children }: { label: string; htmlFor?: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
@@ -57,7 +73,7 @@ function CreateToken() {
   const [name, setName] = useState("")
   const [expiry, setExpiry] = useState("90")
   const [hideShops, setHideShops] = useState(false)
-  const [created, setCreated] = useState<{ name: string; token: string } | null>(null)
+  const { created, setCreated } = useNewToken()
 
   const [state, action, pending] = useActionState(async (previous: CreateTokenState, formData: FormData): Promise<CreateTokenState> => {
     const result = await createApiTokenAction(previous, formData)
@@ -65,7 +81,7 @@ function CreateToken() {
       setCreated({ name: String(formData.get("name") ?? "").trim(), token: result.token })
       setName("")
     }
-    // The token is kept only for the box below, so closing the box forgets it.
+    // The token is kept only for the box below and the setup that fills it in, so closing the box forgets it.
     return { ok: result.ok, error: result.error }
   }, initial)
 
@@ -134,7 +150,7 @@ function NewToken({ name, token, onDone }: { name: string; token: string; onDone
   return (
     <div role="status" className="flex flex-col gap-3 border-l-2 border-primary bg-muted px-4 py-3">
       <p className="text-sm leading-relaxed">
-        The token for {name}. Copy it now: it is not shown again, and only a hash of it is stored.
+        The token for {name}. Copy it now: it is not shown again, and only a hash of it is stored. The setup under Connect an AI has it filled in until you click Done.
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <Input readOnly value={token} aria-label={`The token for ${name}`} onFocus={(e) => e.currentTarget.select()} spellCheck={false} className="min-w-72 flex-1 font-mono text-xs" />

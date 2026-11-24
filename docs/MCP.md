@@ -1,6 +1,8 @@
 # AI agents (MCP)
 
-AppMetrics serves its numbers to AI agents over the [Model Context Protocol](https://modelcontextprotocol.io) at `/api/mcp`, on the same web container as the dashboard. Connect OpenCode, Claude Code, Cursor, Codex or any other MCP client, and ask it about your installs, revenue and churn.
+AppMetrics serves its numbers to AI agents over the [Model Context Protocol](https://modelcontextprotocol.io) at `/api/mcp`, on the same web container as the dashboard. Connect Claude Code, Claude Desktop, Cursor, OpenCode, Codex or any other MCP client, and ask it about your installs, revenue and churn.
+
+The quickest way: in the dashboard, open **Settings**, then **API tokens**, and create a token. **Connect an AI**, just below, has each app's setup with your dashboard's address and that token filled in, ready to copy. The steps here are the same, written out by hand.
 
 It is read-only. An agent can read the numbers the dashboard shows and nothing else: it cannot change data, and it never reaches Shopify. The endpoint speaks MCP revision 2026-07-28 (stateless Streamable HTTP, built on the official TypeScript SDK v2), and also serves clients that still use the 2025 revisions.
 
@@ -9,9 +11,9 @@ It is read-only. An agent can read the numbers the dashboard shows and nothing e
 1. In the dashboard, open **Settings**, then **API tokens**.
 2. Give the token a name (for example "Claude Code on my laptop") and pick when it expires.
 3. Tick **Hide shop domains** if the agent should see an alias such as `shop_3f9a1c2b7e` in place of each shop's domain. See [Data use](#data-use).
-4. Click **Create token** and copy it. It is shown once; only a hash of it is stored.
+4. Click **Create token** and copy it. It is shown once; only a hash of it is stored. Until you click **Done**, the setup under **Connect an AI** has it filled in.
 
-Keep the token in an environment variable, so it stays out of config files:
+The setup in Settings puts the token in each app's config, which keeps it there in plain text. Where an app can read it from the environment, as in the examples below, the token stays out of config files:
 
 ```bash
 export APPMETRICS_TOKEN=amt_...   # in your shell profile, or load it from a password manager
@@ -55,6 +57,38 @@ claude mcp add --transport http --scope user appmetrics https://<your host>/api/
 ```
 
 The single quotes keep `${APPMETRICS_TOKEN}` as written: Claude Code reads the variable each time it connects, so the token is not saved in `~/.claude.json`. Leave out `--scope user` to add the server to the current project only. Run `claude mcp list`, or `/mcp` inside Claude Code, to check that it is connected.
+
+### Claude Desktop
+
+Claude Desktop's Connectors screen cannot send a bearer token, so Claude Desktop reaches the endpoint through [mcp-remote](https://www.npmjs.com/package/mcp-remote), a small bridge it starts on your computer. It runs on Node.js: install the LTS version from [nodejs.org](https://nodejs.org) first.
+
+1. In Claude Desktop, open **Settings**, then **Developer**, and click **Edit Config**. That opens `claude_desktop_config.json`, which is `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS and `%APPDATA%\Claude\claude_desktop_config.json` on Windows.
+2. Add the server under `mcpServers`, next to any that are there already:
+
+   ```json
+   {
+     "mcpServers": {
+       "appmetrics": {
+         "command": "npx",
+         "args": ["-y", "mcp-remote@0.16.7", "https://<your host>/api/mcp", "--header", "Authorization:${AUTH_HEADER}"],
+         "env": {
+           "AUTH_HEADER": "Bearer amt_..."
+         }
+       }
+     }
+   }
+   ```
+
+3. Quit Claude Desktop and open it again. Closing the window is not enough: on macOS choose **Claude**, then **Quit Claude**; on Windows right-click the Claude icon in the system tray and choose **Quit**.
+4. Click **+** in the message box, then **Connectors**: appmetrics is listed with its tools. If it is not, **Settings**, then **Developer**, shows the error and the server's log.
+
+How this is written, on purpose:
+
+- The mcp-remote version is pinned, so a new release cannot change what runs on your computer unseen. Raise it when you choose to.
+- `Authorization:${AUTH_HEADER}` has no space in it, because Claude Desktop on Windows splits arguments at spaces. mcp-remote fills in `${AUTH_HEADER}` from `env` itself, so the token does not show in the list of running processes. It does stay in this file, in plain text.
+- mcp-remote refuses plain http except to `localhost` and `127.0.0.1`. For a dashboard on plain http elsewhere, add `"--allow-http"` to `args`, or better, serve it over https.
+
+mcp-remote 0.16.7 was tested against this endpoint: it opens with the 2025 handshake, which the endpoint answers. With `"--protocol", "auto"` added to `args` it finds the 2026-07-28 revision and uses that instead; both work.
 
 ### Cursor
 
@@ -153,7 +187,7 @@ Claude Code and OpenCode list them when you type `/appmetrics:`, as `/appmetrics
 - Each tool reads in a read-only database transaction, and a query that runs longer than 15 seconds is stopped.
 - 120 requests a minute per token. Past that the endpoint answers 429 with a `Retry-After` header. A batch of JSON-RPC messages, which only clients on the 2025-03-26 revision send, counts each message as a request.
 - Every request a token makes is written to a call log in the database (the tool or method, whether it succeeded, how long it took), kept for 30 days. Requests refused by the rate limit are not, so a runaway agent cannot fill the table. The token itself is never logged.
-- A request sent by a web page (one with an `Origin` header) is refused. Agents such as OpenCode and Claude Code do not send one.
+- A request sent by a web page (one with an `Origin` header) is refused. Agents such as OpenCode and Claude Code do not send one, and neither does mcp-remote.
 
 If a client cannot connect: 401 means the token is missing, mistyped, revoked or expired; 429 means wait for the number of seconds in `Retry-After`. A 405 for GET is normal: the endpoint only takes POST.
 

@@ -70,7 +70,8 @@ lib/analytics/  derive, rebuild, aggregate, queries, matrix, view builders, metr
                 shop timeline, data health, MRR movers
 lib/partner/    query, client, parse, sync, store
 lib/auth/       password, sessions, API tokens, rate limit, cookies, the data access layer
-lib/mcp/        the MCP endpoint: token check, rate limit, read-only context, answers, tools/
+lib/mcp/        the MCP endpoint: token check, rate limit, read-only context, answers, tools/,
+                prompts, and the setup Settings shows to connect an AI
 lib/db/         schema, client, migrations runner
 worker/         the background process
 cli/            migrate, seed-demo, generate-secrets, hash-password, check-env, probe
