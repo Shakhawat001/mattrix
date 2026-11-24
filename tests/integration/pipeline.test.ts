@@ -214,6 +214,27 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
       expect(await database.db.select().from(dailyMetrics)).toHaveLength(41)
     })
 
+    it("derives the same rows however events at the same instant are stored", async () => {
+      // One plan change Shopify reports as two events at the same instant. Read in one order it is
+      // an upgrade; in the other, a cancel and a new sale. Every rebuild must read them alike.
+      const base = [
+        pe("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com"),
+        pe("SUBSCRIPTION_CREATED", "2026-01-01", "x.myshopify.com", monthly(1000, null, "basic")),
+      ]
+      const created = pe("SUBSCRIPTION_CREATED", "2026-01-10T10:00:00Z", "x.myshopify.com", monthly(3000, null, "plus"))
+      const updated = pe("SUBSCRIPTION_UPDATED", "2026-01-10T10:00:00Z", "x.myshopify.com", monthly(3000, null, "plus"))
+      const derivedFrom = async (stored: ParsedEvent[]) => {
+        await database.db.delete(events)
+        await load(stored)
+        const periods = (await database.db.select().from(subscriptions)).map((p) => JSON.stringify({ ...p, id: undefined })).sort()
+        return { periods, days: await database.db.select().from(dailyMetrics).orderBy(dailyMetrics.date) }
+      }
+
+      const first = await derivedFrom([...base, created, updated])
+      const second = await derivedFrom([...base, updated, created])
+      expect(second).toEqual(first)
+    })
+
     it("deletes everything under a connection with it", async () => {
       await load()
       await database.db.delete(connections).where(eq(connections.id, connectionId))

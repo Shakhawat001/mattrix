@@ -28,7 +28,7 @@ import { EVENT } from "@/lib/partner/query"
  * the worker rebuilds any app built with an older one, so a deploy that changes a rule recomputes
  * all of history. Bump it with every change to what derive() returns.
  */
-export const DERIVE_VERSION = 1
+export const DERIVE_VERSION = 2
 
 const DAY_MS = 86_400_000
 /** A cancel and a new subscription this close together are one plan change, not a loss and a new sale. */
@@ -182,6 +182,8 @@ function changesPlan(p: Period, e: RawEvent): boolean {
 const startOfUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
 
 export function derive(events: RawEvent[], now: Date): Derived {
+  // By time, then by event type (RANK), then in the order given: rebuildApp reads events by time
+  // and then by id, so two events of the same rank at the same instant are always read alike.
   const sorted = events
     .map((e, index) => ({ e, index }))
     .sort((a, b) => a.e.occurredAt.getTime() - b.e.occurredAt.getTime() || rankOf(a.e.type) - rankOf(b.e.type) || a.index - b.index)

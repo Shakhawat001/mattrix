@@ -42,7 +42,8 @@ export async function rebuildApp(db: Db, appId: string, now: Date = new Date()):
       })
       .from(events)
       .where(and(eq(events.appId, appId), sql`NOT EXISTS (SELECT 1 FROM ${excludedShops} WHERE ${excludedShops.shop} = lower(${events.shop}))`))
-      .orderBy(asc(events.occurredAt))
+      // Then by id, so events at the same instant reach derive() in the same order on every rebuild.
+      .orderBy(asc(events.occurredAt), asc(events.id))
 
     const result = derive(raw, now)
 
