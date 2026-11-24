@@ -95,7 +95,7 @@ Your apps are found by themselves. Rename them, give them a color, or hide one i
 
 **Update.** Pull the new code and run `docker compose up -d --build`. Migrations run when `web` starts.
 
-**Back up.** The `backup` service does it for you. Every 12 hours it writes a compressed dump of the database to the `db-backups` volume, and it keeps 14 days of dumps (always at least the newest 3). `BACKUP_EVERY_HOURS` and `BACKUP_KEEP_DAYS` change that. The dumps sit on the same server as the database, so they protect you from a bad update or a mistake, not from losing the server: copy them somewhere else now and then with `docker compose cp backup:/backups ./appmetrics-backups`. Everything except the stored tokens and your own settings can also be rebuilt from Shopify by connecting again.
+**Back up.** The `backup` service does it for you. Every 12 hours it writes a compressed dump of the database to the `db-backups` volume, and it keeps 14 days of dumps (always at least the newest 3). `BACKUP_EVERY_HOURS` and `BACKUP_KEEP_DAYS` change that. The dumps sit on the same server as the database, so they protect you from a bad update or a mistake, not from losing the server: copy them somewhere else now and then with `docker compose cp backup:/backups ./appmetrics-backups`. Everything except the stored tokens, your own settings and your annotations can also be rebuilt from Shopify by connecting again.
 
 - **List the dumps:** `docker compose exec backup ls -lh /backups`. On Coolify, open the `backup` container's terminal and run `ls -lh /backups`.
 - **Take one now:** `docker compose exec backup sh -c 'pg_dump --format=custom --file=/backups/appmetrics-manual-$(date -u +%Y%m%d-%H%M%S).dump'`.

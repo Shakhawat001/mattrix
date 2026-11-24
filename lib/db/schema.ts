@@ -268,6 +268,29 @@ export const dailyMetrics = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// Annotations: your own notes, not rebuilt from events
+// ---------------------------------------------------------------------------
+
+/** A day marked with a short label: a price change, a release, an App Store feature, an ad campaign. */
+export const annotations = pgTable(
+  "annotations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** The app it is about. Null means every app. */
+    appId: uuid("app_id").references(() => apps.id, { onDelete: "cascade" }),
+    /** A UTC day. */
+    date: date("date", { mode: "string" }).notNull(),
+    /** At most 60 characters, checked before saving. */
+    label: text("label").notNull(),
+    /** At most 500 characters, checked before saving. */
+    note: text("note"),
+    createdAt: tz("created_at").notNull().defaultNow(),
+  },
+  // Serves "these apps in this range" (app_id IN (...) OR app_id IS NULL) and the cascade from apps.
+  (t) => [index("annotations_app_date_idx").on(t.appId, t.date)],
+)
+
+// ---------------------------------------------------------------------------
 // Operations
 // ---------------------------------------------------------------------------
 

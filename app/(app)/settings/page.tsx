@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { PageHeader } from "@/components/app/page-header"
 import { AddConnectionForm } from "@/components/settings/add-connection-form"
+import { Annotations } from "@/components/settings/annotations"
 import { ApiTokensSection } from "@/components/settings/api-tokens-section"
 import { AppForm } from "@/components/settings/app-form"
 import { ConnectionActions } from "@/components/settings/connection-actions"
@@ -8,6 +9,7 @@ import { ExcludedShops } from "@/components/settings/excluded-shops"
 import { SignOutEverywhere } from "@/components/settings/sign-out-everywhere"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { ALL_APPS, FIRST_ANNOTATION_DATE, lastAnnotationDate, listAnnotations } from "@/lib/analytics/annotations"
 import { listExcludedShops } from "@/lib/analytics/excluded-shops"
 import { getConnections, type ConnectionOverview } from "@/lib/analytics/queries"
 import { addDays, formatDate, todayUtc } from "@/lib/analytics/range"
@@ -45,6 +47,7 @@ export default async function SettingsPage() {
   const db = getDb()
   const [connections, apps, sessions] = await Promise.all([getConnections(db), getApps(), countActiveSessions(db)])
   const excludedShops = await listExcludedShops(db)
+  const annotations = await listAnnotations(db)
   const env = getEnv()
   const colors = appColors(apps)
   const now = new Date()
@@ -171,6 +174,12 @@ export default async function SettingsPage() {
       </section>
 
       <ExcludedShops shops={excludedShops.map((s) => ({ shop: s.shop, note: s.note, added: formatDate(s.createdAt.toISOString().slice(0, 10)) }))} />
+
+      <Annotations
+        annotations={annotations.map((a) => ({ id: a.id, date: formatDate(a.date), app: a.appId === null ? null : (apps.find((p) => p.id === a.appId)?.label ?? "Unknown app"), label: a.label, note: a.note }))}
+        apps={[{ value: ALL_APPS, label: "All apps" }, ...apps.map((a) => ({ value: a.id, label: a.label }))]}
+        dates={{ initial: todayUtc(now), min: FIRST_ANNOTATION_DATE, max: lastAnnotationDate(todayUtc(now)) }}
+      />
 
       <ApiTokensSection />
 
