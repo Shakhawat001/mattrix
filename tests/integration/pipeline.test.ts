@@ -206,6 +206,21 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
       expect(t.map((x) => x.outcome).sort()).toEqual(["canceled", "converted"])
     })
 
+    it("keeps a period's scheduled cancel: when it was scheduled and the day it takes effect", async () => {
+      await load([
+        ...history,
+        pe("RELATIONSHIP_INSTALLED", "2026-01-20", "f.myshopify.com"),
+        pe("SUBSCRIPTION_CREATED", "2026-01-20", "f.myshopify.com", monthly(1500)),
+        // Shopify's Date, stored as the start of that UTC day (lib/partner/parse.ts).
+        pe("SUBSCRIPTION_CANCELLATION_SCHEDULED", "2026-02-01", "f.myshopify.com", { cancelEffectiveOn: new Date("2026-02-20T00:00:00Z") }),
+      ])
+      const periods = await database.db.select().from(subscriptions)
+      expect(periods.filter((p) => p.shop === "f.myshopify.com")).toMatchObject([
+        { endedAt: null, cancelScheduledAt: new Date("2026-02-01T12:00:00Z"), cancelEffectiveAt: new Date("2026-02-20T00:00:00Z") },
+      ])
+      expect(periods.filter((p) => p.cancelScheduledAt !== null || p.cancelEffectiveAt !== null)).toHaveLength(1)
+    })
+
     it("replaces the old rows on a rebuild rather than adding to them", async () => {
       await load()
       await rebuildApp(database.db, appId, NOW)

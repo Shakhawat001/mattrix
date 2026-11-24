@@ -376,6 +376,56 @@ describe("cancellations that take effect later", () => {
     expect(r.trials[0].outcome).toBe("canceled")
     expect(r.daily.every((d) => d.mrrCents === 0 && d.churnedMrrCents === 0)).toBe(true)
   })
+
+  /** The start of a UTC day: when a cancel that takes effect that day ends the period. */
+  const startOf = (day: string) => new Date(`${day}T00:00:00Z`)
+
+  it("keeps on the period when the cancel was scheduled and the day it takes effect", () => {
+    // Scheduled on 10 January for 31 January: the period ends at the start of that day.
+    const ended = derive([...sub, ev("SUBSCRIPTION_CANCELLATION_SCHEDULED", "2026-01-10", "x.myshopify.com", { cancelEffectiveOn: at("2026-01-31") })], NOW)
+    expect(ended.subscriptions).toMatchObject([{ endReason: "canceled", endedAt: startOf("2026-01-31"), cancelScheduledAt: at("2026-01-10"), cancelEffectiveAt: startOf("2026-01-31") }])
+
+    // A cancel sent on 1 February that takes effect on 1 March: on 10 February the period is open and set to end.
+    const pending = derive([...sub, ev("SUBSCRIPTION_CANCELED", "2026-02-01", "x.myshopify.com", { cancelEffectiveOn: at("2026-03-01") })], NOW)
+    expect(pending.subscriptions).toMatchObject([{ endReason: null, endedAt: null, cancelScheduledAt: at("2026-02-01"), cancelEffectiveAt: startOf("2026-03-01") }])
+  })
+
+  it("moves the day when Shopify schedules the cancel again, and keeps when it was first scheduled", () => {
+    // Scheduled on 10 January for 31 January, then on 20 January for 28 February.
+    const r = derive(
+      [
+        ...sub,
+        ev("SUBSCRIPTION_CANCELLATION_SCHEDULED", "2026-01-10", "x.myshopify.com", { cancelEffectiveOn: at("2026-01-31") }),
+        ev("SUBSCRIPTION_CANCELLATION_SCHEDULED", "2026-01-20", "x.myshopify.com", { cancelEffectiveOn: at("2026-02-28") }),
+      ],
+      NOW,
+    )
+    expect(r.subscriptions).toMatchObject([{ endedAt: null, cancelScheduledAt: at("2026-01-10"), cancelEffectiveAt: startOf("2026-02-28") }])
+    expect(dayOf(r, "2026-01-31")).toMatchObject({ churnedMrrCents: 0, activeSubs: 1, mrrCents: 2000 })
+    mrrAddsUp(r)
+  })
+
+  it("keeps no scheduled end for a cancel that takes effect at once, nor on the plan the shop moves to", () => {
+    const atOnce = derive([...sub, ev("SUBSCRIPTION_CANCELED", "2026-01-10", "x.myshopify.com")], NOW)
+    expect(atOnce.subscriptions).toMatchObject([{ endReason: "canceled", endedAt: at("2026-01-10"), cancelScheduledAt: null, cancelEffectiveAt: null }])
+    // Scheduled for the day it is sent: it takes effect at once.
+    const sameDay = derive([...sub, ev("SUBSCRIPTION_CANCELLATION_SCHEDULED", "2026-01-10", "x.myshopify.com", { cancelEffectiveOn: at("2026-01-10") })], NOW)
+    expect(sameDay.subscriptions).toMatchObject([{ endReason: "canceled", endedAt: at("2026-01-10"), cancelScheduledAt: null, cancelEffectiveAt: null }])
+
+    // Scheduled for 31 January, then a move to $30 on 20 January: the $20 period keeps its schedule, the $30 one has none.
+    const moved = derive(
+      [
+        ...sub,
+        ev("SUBSCRIPTION_CANCELLATION_SCHEDULED", "2026-01-10", "x.myshopify.com", { cancelEffectiveOn: at("2026-01-31") }),
+        ev("SUBSCRIPTION_UPDATED", "2026-01-20", "x.myshopify.com", monthly(3000, null, "plus")),
+      ],
+      NOW,
+    )
+    expect(moved.subscriptions).toMatchObject([
+      { monthlyCents: 2000, endReason: "replaced", cancelScheduledAt: at("2026-01-10"), cancelEffectiveAt: startOf("2026-01-31") },
+      { monthlyCents: 3000, endedAt: null, cancelScheduledAt: null, cancelEffectiveAt: null },
+    ])
+  })
 })
 
 describe("plan changes Shopify reports as two events", () => {
@@ -733,6 +783,31 @@ describe("subscription events after an uninstall", () => {
     expect(dayOf(r, "2026-01-15")).toMatchObject({ expansionMrrCents: 1000, newMrrCents: 0, activeSubs: 1, mrrCents: 3000 })
     expect(dayOf(r, "2026-01-20")).toMatchObject({ uninstalls: 1, churnedMrrCents: 3000, canceledSubs: 1, activeInstalls: 0, activeSubs: 0, mrrCents: 0 })
     expect(dayOf(r, "2026-01-25")).toMatchObject({ newMrrCents: 0, activeSubs: 0, mrrCents: 0 })
+    mrrAddsUp(r)
+  })
+
+  it("ignores an unfreeze between an uninstall and the next install", () => {
+    // y pays $10 from 1 January. x pays $20 from 1 January; Shopify freezes it on 10 January, x
+    // uninstalls on 15 January, and an unfreeze follows on 20 January.
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", y),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", y, monthly(1000, null, "basic")),
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", x),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", x, monthly(2000)),
+        ev("SUBSCRIPTION_FROZEN", "2026-01-10", x),
+        ev("RELATIONSHIP_UNINSTALLED", "2026-01-15", x),
+        ev("SUBSCRIPTION_UNFROZEN", "2026-01-20", x),
+      ],
+      NOW,
+    )
+    expect(r.ignoredAfterUninstall).toBe(1)
+    expect(r.subscriptions.filter((p) => p.shop === x)).toMatchObject([{ kind: "new", monthlyCents: 2000, endReason: "frozen" }])
+    // The freeze is the loss. The uninstall ends nothing more, and the unfreeze brings nothing back.
+    expect(dayOf(r, "2026-01-10")).toMatchObject({ churnedMrrCents: 2000, churnedMrrStoreInactiveCents: 2000, canceledSubs: 1, activeSubs: 1, mrrCents: 1000 })
+    expect(dayOf(r, "2026-01-15")).toMatchObject({ uninstalls: 1, churnedMrrCents: 0, canceledSubs: 0, activeInstalls: 1, activeSubs: 1, mrrCents: 1000 })
+    expect(dayOf(r, "2026-01-20")).toMatchObject({ newMrrCents: 0, newSubs: 0, activeSubs: 1, mrrCents: 1000 })
+    expect(r.daily.at(-1)).toMatchObject({ activeInstalls: 1, activeSubs: 1, mrrCents: 1000 })
     mrrAddsUp(r)
   })
 })

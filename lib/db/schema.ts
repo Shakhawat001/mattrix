@@ -193,6 +193,10 @@ export const subscriptions = pgTable(
     trialEndsAt: tz("trial_ends_at"),
     /** First recurring charge, which is when a trial turned into money. */
     convertedAt: tz("converted_at"),
+    /** When Shopify first said this period is canceled from a later day (cancelEffectiveOn). */
+    cancelScheduledAt: tz("cancel_scheduled_at"),
+    /** The start of that UTC day. An open period with one is set to end then. */
+    cancelEffectiveAt: tz("cancel_effective_at"),
   },
   (t) => [
     index("subs_app_started_idx").on(t.appId, t.startedAt),

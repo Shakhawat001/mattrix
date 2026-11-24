@@ -50,6 +50,13 @@
       "when": 1795492680444,
       "tag": "0006_legacy_events",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795496466795,
+      "tag": "0007_scheduled_cancel",
+      "breakpoints": true
     }
   ]
 }

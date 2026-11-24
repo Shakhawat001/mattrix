@@ -18,7 +18,8 @@ import { EVENT, LEGACY_EVENT_TYPES } from "@/lib/partner/query"
 //     on the merchant's own invoice date, which can be weeks after the trial ended, so the charge
 //     event is not waited for; an earlier charge converts it earlier.
 //   - A cancellation counts on the day it takes effect: `cancelEffectiveOn` when Shopify gives a
-//     later date, otherwise the moment of the event.
+//     later date, otherwise the moment of the event. The period keeps when the cancel was first
+//     scheduled and the day it takes effect, so a subscription set to end can be listed until then.
 //   - Subscription events carry no subscription id, so a plan change has to be recognized: a
 //     second subscription while one is open, a cancel naming another plan moments after a new one
 //     began, or a cancel followed within minutes by a new subscription are all one plan change.
@@ -26,17 +27,17 @@ import { EVENT, LEGACY_EVENT_TYPES } from "@/lib/partner/query"
 //     store's billing account deactivated (closed, paused or unpaid: a deactivation since its latest
 //     install, with no reactivation since), is the store going inactive. Anything else is the
 //     merchant leaving.
-//   - Shopify cancels an app's subscriptions when the app is uninstalled, so a creation or an update
-//     between a shop's uninstall and its next install (Shopify can send one late) is counted and
-//     otherwise ignored. A shop with no install or uninstall seen yet installed before the history
-//     starts, so its subscription events count as usual.
+//   - Shopify cancels an app's subscriptions when the app is uninstalled, so a creation, an update or
+//     an unfreeze between a shop's uninstall and its next install (Shopify can send one late) is
+//     counted and otherwise ignored. A shop with no install or uninstall seen yet installed before
+//     the history starts, so its subscription events count as usual.
 
 /**
  * The version of these rules. Each app stores the version its derived tables were built with, and
  * the worker rebuilds any app built with an older one, so a deploy that changes a rule recomputes
  * all of history. Bump it with every change to what derive() returns.
  */
-export const DERIVE_VERSION = 5
+export const DERIVE_VERSION = 6
 
 const DAY_MS = 86_400_000
 /** A cancel and a new subscription this close together are one plan change, not a loss and a new sale. */
@@ -86,6 +87,10 @@ export type SubscriptionRow = {
   trialEndsAt: Date | null
   /** When that trial turned into money. A period with a trial and no conversion never paid. */
   convertedAt: Date | null
+  /** When Shopify first said this period is canceled from a later day. Null when no cancel was scheduled. */
+  cancelScheduledAt: Date | null
+  /** The start of that UTC day. The period pays until then, and ends then unless something ends it first. */
+  cancelEffectiveAt: Date | null
 }
 
 export type TrialRow = {
@@ -142,7 +147,7 @@ export type Derived = {
   daily: DailyRow[]
   /** Uninstalls whose install was never seen (before the backfill, or an event Shopify did not send). */
   orphanUninstalls: number
-  /** Subscription creations and updates between a shop's uninstall and its next install: ignored, since an uninstall cancels the app's subscriptions. */
+  /** Subscription creations, updates and unfreezes between a shop's uninstall and its next install: ignored, since an uninstall cancels the app's subscriptions. */
   ignoredAfterUninstall: number
 }
 
@@ -171,7 +176,7 @@ export const rankOf = (type: string) => RANK[type] ?? 4
 
 type TrialRef = { endsAt: Date; convertedAt: Date | null }
 type Trial = { row: TrialRow; ref: TrialRef }
-type Period = SubscriptionRow & { ref: TrialRef | null; scheduledEnd: Date | null; endedWhileDeactivated: boolean }
+type Period = SubscriptionRow & { ref: TrialRef | null; endedWhileDeactivated: boolean }
 type ShopState = {
   install: InstallRow | null
   installCount: number
@@ -207,6 +212,12 @@ function changesPlan(p: Period, e: RawEvent): boolean {
 
 /** A Date scalar ("2026-02-10") or timestamp read as the start of that UTC day. */
 const startOfUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+
+/** A cancel that takes effect on a later day. A later one moves the day; the time it was scheduled stays the first. */
+function scheduleCancel(p: Period, at: Date, effective: Date) {
+  p.cancelScheduledAt ??= at
+  p.cancelEffectiveAt = effective
+}
 
 export function derive(events: RawEvent[], now: Date): Derived {
   // By time, then by event type (RANK), then in the order given: rebuildApp reads events by time
@@ -271,9 +282,10 @@ export function derive(events: RawEvent[], now: Date): Derived {
       billingPeriod: e.billingPeriod ?? (kind === "new" ? null : s.lastBilling),
       trialEndsAt: null,
       convertedAt: null,
+      cancelScheduledAt: null,
+      cancelEffectiveAt: null,
       // A trial in progress carries over to the new plan.
       ref: s.trial?.ref ?? null,
-      scheduledEnd: null,
       endedWhileDeactivated: false,
     }
     periods.push(period)
@@ -340,7 +352,7 @@ export function derive(events: RawEvent[], now: Date): Derived {
   function settle(s: ShopState, t: Date) {
     for (;;) {
       const conversion = s.trial && s.sub ? s.trial.row.endsAt : null
-      const end = s.sub?.scheduledEnd ?? null
+      const end = s.sub?.cancelEffectiveAt ?? null
       if (end && end.getTime() <= t.getTime() && (!conversion || end.getTime() <= conversion.getTime())) {
         closePeriod(s, end, "canceled")
         s.lastCancel = null
@@ -365,8 +377,8 @@ export function derive(events: RawEvent[], now: Date): Derived {
     const s = stateOf(e.shop)
     settle(s, e.occurredAt)
 
-    // The shop uninstalled and has not installed again, so it has no subscription to open or change.
-    if (s.uninstalled && (e.type === EVENT.SUB_CREATED || e.type === EVENT.SUB_UPDATED)) {
+    // The shop uninstalled and has not installed again, so it has no subscription to open, change or resume.
+    if (s.uninstalled && (e.type === EVENT.SUB_CREATED || e.type === EVENT.SUB_UPDATED || e.type === EVENT.SUB_UNFROZEN)) {
       ignoredAfterUninstall++
       continue
     }
@@ -430,7 +442,7 @@ export function derive(events: RawEvent[], now: Date): Derived {
         // A cancel naming another plan, moments after a new one began, is the old subscription being replaced.
         if (!namesSamePlan(s.sub, e) && e.occurredAt.getTime() - s.sub.startedAt.getTime() <= REPLACE_WINDOW_MS) break
         const effective = e.cancelEffectiveOn ? startOfUtcDay(e.cancelEffectiveOn) : null
-        if (effective && effective.getTime() > e.occurredAt.getTime()) s.sub.scheduledEnd = effective
+        if (effective && effective.getTime() > e.occurredAt.getTime()) scheduleCancel(s.sub, e.occurredAt, effective)
         else closePeriod(s, e.occurredAt, "canceled")
         break
       }
@@ -438,7 +450,7 @@ export function derive(events: RawEvent[], now: Date): Derived {
       case EVENT.SUB_CANCELLATION_SCHEDULED: {
         if (!s.sub || !e.cancelEffectiveOn) break
         const effective = startOfUtcDay(e.cancelEffectiveOn)
-        if (effective.getTime() > e.occurredAt.getTime()) s.sub.scheduledEnd = effective
+        if (effective.getTime() > e.occurredAt.getTime()) scheduleCancel(s.sub, e.occurredAt, effective)
         else closePeriod(s, e.occurredAt, "canceled")
         break
       }
@@ -462,7 +474,7 @@ export function derive(events: RawEvent[], now: Date): Derived {
   // Up to now: trials that have ended convert, cancellations that have taken effect end.
   for (const s of shops.values()) settle(s, now)
 
-  // Listed field by field, so nothing used only while working (the trial reference, a pending end, the store's state) is stored.
+  // Listed field by field, so nothing used only while working (the trial reference, the store's state) is stored.
   const subscriptions: SubscriptionRow[] = periods.map((p) => ({
     shop: p.shop,
     startedAt: p.startedAt,
@@ -475,6 +487,8 @@ export function derive(events: RawEvent[], now: Date): Derived {
     billingPeriod: p.billingPeriod,
     trialEndsAt: p.ref?.endsAt ?? null,
     convertedAt: p.ref?.convertedAt ?? null,
+    cancelScheduledAt: p.cancelScheduledAt,
+    cancelEffectiveAt: p.cancelEffectiveAt,
   }))
 
   return {
