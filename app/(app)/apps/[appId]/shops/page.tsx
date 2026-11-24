@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { ExcludeShopButton } from "@/components/app/exclude-shop-button"
 import { ExportLink } from "@/components/app/export-link"
 import { PageHeader } from "@/components/app/page-header"
 import { PageNav } from "@/components/app/page-nav"
@@ -6,6 +7,7 @@ import { ParamSelect, SearchBox } from "@/components/app/table-controls"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { listExcludedShops } from "@/lib/analytics/excluded-shops"
 import { reasonLabel } from "@/lib/analytics/labels"
 import type { SearchParams } from "@/lib/analytics/page-params"
 import { listShops } from "@/lib/analytics/queries"
@@ -34,6 +36,8 @@ export default async function ShopsPage({ params, searchParams }: { params: Prom
   const page = pageNumber(query.page)
 
   const { rows, total } = await listShops(getDb(), [appId], { q, status, plan, sort, page, pageSize: PAGE_SIZE })
+  // Excluded shops leave this list at the next rebuild; until then their row says so.
+  const excluded = new Set((await listExcludedShops(getDb())).map((s) => s.shop))
   const current = toParams(query)
   const hrefFor = (n: number) => `/apps/${appId}/shops?${withParams(current, { page: String(n) }).toString()}`
 
@@ -42,7 +46,7 @@ export default async function ShopsPage({ params, searchParams }: { params: Prom
       <PageHeader
         level={2}
         title="Shops"
-        description="Every shop that has installed the app, where it stands, and what it has paid. Not limited by the date range."
+        description="Every shop that has installed the app, where it stands, and what it has paid. Not limited by the date range. Exclude your own test stores to leave them out of every number."
         actions={<ExportLink params={{ kind: "shops", app: appId, q, status, plan, sort }} />}
       />
 
@@ -67,12 +71,15 @@ export default async function ShopsPage({ params, searchParams }: { params: Prom
                 <TableHead>First installed</TableHead>
                 <TableHead>Left</TableHead>
                 <TableHead>Reason</TableHead>
+                <TableHead>
+                  <span className="sr-only">Exclude</span>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
                     No shops match.
                   </TableCell>
                 </TableRow>
@@ -93,6 +100,9 @@ export default async function ShopsPage({ params, searchParams }: { params: Prom
                     <TableCell className="text-muted-foreground">{s.uninstalledAt ? formatDate(s.uninstalledAt.toISOString().slice(0, 10)) : ""}</TableCell>
                     <TableCell className="max-w-56 truncate text-muted-foreground" title={s.reason ?? undefined}>
                       {s.reason ? s.reason.split(",").map((r) => reasonLabel(r.trim())).join(", ") : ""}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <ExcludeShopButton shop={s.shop} excluded={excluded.has(s.shop)} />
                     </TableCell>
                   </TableRow>
                 ))

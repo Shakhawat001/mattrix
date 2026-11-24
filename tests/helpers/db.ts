@@ -20,5 +20,5 @@ export async function openTestDatabase(): Promise<Database> {
 
 /** Empties every table, so each test starts from nothing. */
 export async function clearAll(database: Database): Promise<void> {
-  await database.sql`truncate table events, installs, subscriptions, trials, daily_metrics, sync_runs, apps, connections, sessions, login_attempts, api_calls, api_tokens restart identity cascade`
+  await database.sql`truncate table events, installs, subscriptions, trials, daily_metrics, sync_runs, apps, connections, sessions, login_attempts, api_calls, api_tokens, excluded_shops restart identity cascade`
 }

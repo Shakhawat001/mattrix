@@ -4,9 +4,11 @@ import { AddConnectionForm } from "@/components/settings/add-connection-form"
 import { ApiTokensSection } from "@/components/settings/api-tokens-section"
 import { AppForm } from "@/components/settings/app-form"
 import { ConnectionActions } from "@/components/settings/connection-actions"
+import { ExcludedShops } from "@/components/settings/excluded-shops"
 import { SignOutEverywhere } from "@/components/settings/sign-out-everywhere"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { listExcludedShops } from "@/lib/analytics/excluded-shops"
 import { getConnections, type ConnectionOverview } from "@/lib/analytics/queries"
 import { addDays, formatDate, todayUtc } from "@/lib/analytics/range"
 import { getApps } from "@/lib/analytics/scope"
@@ -42,6 +44,7 @@ export default async function SettingsPage() {
   await requireSession()
   const db = getDb()
   const [connections, apps, sessions] = await Promise.all([getConnections(db), getApps(), countActiveSessions(db)])
+  const excludedShops = await listExcludedShops(db)
   const env = getEnv()
   const colors = appColors(apps)
   const now = new Date()
@@ -166,6 +169,8 @@ export default async function SettingsPage() {
           </CardContent>
         </Card>
       </section>
+
+      <ExcludedShops shops={excludedShops.map((s) => ({ shop: s.shop, note: s.note, added: formatDate(s.createdAt.toISOString().slice(0, 10)) }))} />
 
       <ApiTokensSection />
 

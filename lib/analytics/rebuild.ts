@@ -1,6 +1,6 @@
-import { asc, eq, isNull, lt, or } from "drizzle-orm"
+import { and, asc, eq, isNull, lt, or, sql } from "drizzle-orm"
 import type { Db } from "@/lib/db/client"
-import { apps, dailyMetrics, events, installs, subscriptions, trials } from "@/lib/db/schema"
+import { apps, dailyMetrics, events, excludedShops, installs, subscriptions, trials } from "@/lib/db/schema"
 import { DERIVE_VERSION, derive } from "./derive"
 
 const CHUNK = 1000
@@ -10,35 +10,42 @@ async function insertChunked<T>(rows: T[], write: (chunk: T[]) => Promise<unknow
 }
 
 /**
- * Rebuilds one app's derived tables from its events. Replaces them in one
- * transaction, so a page never sees half of a rebuild. Cheap enough to run in full
+ * Rebuilds one app's derived tables from its events, leaving out the excluded shops. Replaces
+ * them in one transaction, so a page never sees half of a rebuild. Cheap enough to run in full
  * every time: it reads the events once and writes a few rows per shop and per day.
+ *
+ * The app's row stays locked from before the events are read until the new rows are in. Whatever
+ * marks the app dirty meanwhile (a sync storing events, a change to the excluded shops) waits for
+ * the lock and marks it again afterwards, so it is rebuilt once more instead of being cleared unseen.
  */
 export async function rebuildApp(db: Db, appId: string, now: Date = new Date()): Promise<void> {
-  const raw = await db
-    .select({
-      type: events.type,
-      occurredAt: events.occurredAt,
-      shop: events.shop,
-      reason: events.reason,
-      reasonDescription: events.reasonDescription,
-      planHandle: events.planHandle,
-      billingPeriod: events.billingPeriod,
-      trialDays: events.trialDays,
-      trialDaysRemaining: events.trialDaysRemaining,
-      cancelEffectiveOn: events.cancelEffectiveOn,
-      amountCents: events.amountCents,
-      grossCents: events.grossCents,
-      netCents: events.netCents,
-      feeCents: events.feeCents,
-    })
-    .from(events)
-    .where(eq(events.appId, appId))
-    .orderBy(asc(events.occurredAt))
-
-  const result = derive(raw, now)
-
   await db.transaction(async (tx) => {
+    const [app] = await tx.select({ id: apps.id }).from(apps).where(eq(apps.id, appId)).for("no key update")
+    if (!app) return
+
+    const raw = await tx
+      .select({
+        type: events.type,
+        occurredAt: events.occurredAt,
+        shop: events.shop,
+        reason: events.reason,
+        reasonDescription: events.reasonDescription,
+        planHandle: events.planHandle,
+        billingPeriod: events.billingPeriod,
+        trialDays: events.trialDays,
+        trialDaysRemaining: events.trialDaysRemaining,
+        cancelEffectiveOn: events.cancelEffectiveOn,
+        amountCents: events.amountCents,
+        grossCents: events.grossCents,
+        netCents: events.netCents,
+        feeCents: events.feeCents,
+      })
+      .from(events)
+      .where(and(eq(events.appId, appId), sql`NOT EXISTS (SELECT 1 FROM ${excludedShops} WHERE ${excludedShops.shop} = lower(${events.shop}))`))
+      .orderBy(asc(events.occurredAt))
+
+    const result = derive(raw, now)
+
     await tx.delete(installs).where(eq(installs.appId, appId))
     await tx.delete(subscriptions).where(eq(subscriptions.appId, appId))
     await tx.delete(trials).where(eq(trials.appId, appId))

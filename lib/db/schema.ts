@@ -85,6 +85,17 @@ export const apps = pgTable(
   (t) => [uniqueIndex("apps_connection_gid_uq").on(t.connectionId, t.gid)],
 )
 
+/**
+ * Shops left out of every number of every app: your own development stores, test installs,
+ * Shopify's review stores. Their events stay stored; the derived tables are built without them.
+ */
+export const excludedShops = pgTable("excluded_shops", {
+  /** The myshopify.com domain in lower case, as events store it. */
+  shop: text("shop").primaryKey(),
+  note: text("note"),
+  createdAt: tz("created_at").notNull().defaultNow(),
+})
+
 // ---------------------------------------------------------------------------
 // Raw events
 // ---------------------------------------------------------------------------

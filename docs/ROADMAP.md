@@ -33,8 +33,8 @@ What we build next, in order. Written 24 November 2026. Tick an item in the same
 
 ### 1.2 Exclude shops
 
-- [ ] A list of shops left out of every number: your own development stores, test installs, Shopify's review stores. Their events stay stored; the derived tables and rollups skip them.
-- [ ] Managed in Settings, and one click from the shop list.
+- [x] A list of shops left out of every number: your own development stores, test installs, Shopify's review stores. Their events stay stored; the derived tables and rollups skip them.
+- [x] Managed in Settings, and one click from the shop list.
 
 ### 1.3 Churn by cause
 
