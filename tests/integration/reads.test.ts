@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { sumFlows } from "@/lib/analytics/aggregate"
 import { getDataHealth } from "@/lib/analytics/data-health"
+import { addExcludedShop } from "@/lib/analytics/excluded-shops"
 import { getMrrMovers, type MrrMove } from "@/lib/analytics/mrr-movers"
 import { getDayRows, listApps } from "@/lib/analytics/queries"
 import { addDays, type Range } from "@/lib/analytics/range"
@@ -283,6 +284,26 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
       expect(app.noPricePlans).toEqual([{ planHandle: "usage", count: 1 }])
     })
 
+    it("does not flag an excluded paying shop as charged with no subscription", async () => {
+      // a pays and is charged. Once excluded, the rebuild drops its subscription but its charge stays stored.
+      await addExcludedShop(database.db, "a.myshopify.com", null)
+      await rebuildStaleApps(database.db, NOW)
+      const [app] = (await getDataHealth(database.db, [appId], NOW)).apps
+      expect(app).toMatchObject({ chargedShopsWithNoSubscription: 1, excludedShops: 1, eventCount: 20 })
+    })
+
+    it("leaves excluded shops out of every gap, before and after the rebuild, and counts them instead", async () => {
+      for (const shop of ["b.myshopify.com", "c.myshopify.com", "e.myshopify.com", "h.myshopify.com", "nobody.myshopify.com"]) await addExcludedShop(database.db, shop, null)
+      // Only the uninstall with no shop is left. The shop with no events here is not counted as excluded.
+      const expected = { uninstallsWithNoInstall: 1, shopsWithNoInstall: 0, subscriptionsWithNoCreation: 0, chargedShopsWithNoSubscription: 0, subscriptionsWithNoPrice: 0, noPricePlans: [], excludedShops: 4, eventCount: 20 }
+      // Not rebuilt yet: the derived tables still have c's and h's subscriptions.
+      expect((await getDataHealth(database.db, [appId], NOW)).apps[0]).toMatchObject({ ...expected, dirty: true })
+      await rebuildStaleApps(database.db, NOW)
+      const [app] = (await getDataHealth(database.db, [appId], NOW)).apps
+      expect(app).toMatchObject({ ...expected, dirty: false })
+      expect(app.eventTypes.find((t) => t.type === "CHARGE_RECURRING")!.count).toBe(3)
+    })
+
     it("says when new events wait for a rebuild", async () => {
       await insertEvents(database.db, connectionId, [pe("RELATIONSHIP_INSTALLED", "2026-02-10T01:00:00Z", "z.myshopify.com")])
       const [app] = (await getDataHealth(database.db, [appId], NOW)).apps
@@ -292,7 +313,10 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
     it("reports each connection's syncs: the last run, the errors, and the latest five runs", async () => {
       await database.db
         .update(connections)
-        .set({ lastRunAt: new Date("2026-02-10T11:00:00Z"), lastOkAt: new Date("2026-02-09T11:00:00Z"), lastError: "Partner API returned 502", earningsError: "Access denied for earnings", coreWatermark: new Date("2026-02-09T11:00:00Z") })
+        .set({
+          lastRunAt: new Date("2026-02-10T11:00:00Z"), lastOkAt: new Date("2026-02-09T11:00:00Z"), lastError: "Partner API returned 502", earningsError: "Access denied for earnings",
+          legacyError: "Partner API found no app gid://partners/App/1", coreWatermark: new Date("2026-02-09T11:00:00Z"), legacyWatermark: new Date("2026-02-08T11:00:00Z"),
+        })
         .where(eq(connections.id, connectionId))
       for (let i = 0; i < 7; i++) {
         const startedAt = new Date(Date.UTC(2026, 1, 3 + i, 11))
@@ -304,10 +328,14 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
       const health = await getDataHealth(database.db, [appId], NOW)
       expect(health.connections).toHaveLength(1)
       const [c] = health.connections
-      expect(c).toMatchObject({ connectionId, label: "Test org", isDemo: false, paused: false, apiVersion: "2026-07", lastError: "Partner API returned 502", earningsError: "Access denied for earnings" })
+      expect(c).toMatchObject({
+        connectionId, label: "Test org", isDemo: false, paused: false, apiVersion: "2026-07", lastError: "Partner API returned 502", earningsError: "Access denied for earnings",
+        legacyError: "Partner API found no app gid://partners/App/1",
+      })
       expect(c.backfillFrom.toISOString()).toBe("2025-01-01T00:00:00.000Z")
       expect(c.coreWatermark?.toISOString()).toBe("2026-02-09T11:00:00.000Z")
       expect(c.earningsWatermark).toBeNull()
+      expect(c.legacyWatermark?.toISOString()).toBe("2026-02-08T11:00:00.000Z")
       expect(c.lastRunAt?.toISOString()).toBe("2026-02-10T11:00:00.000Z")
       expect(c.runs.map((r) => r.eventsInserted)).toEqual([6, 5, 4, 3, 2])
       expect(c.runs[0]).toEqual({ trigger: "schedule", startedAt: new Date("2026-02-09T11:00:00Z"), finishedAt: null, ok: null, eventsInserted: 6, appsFound: 1, error: null, durationMs: null })

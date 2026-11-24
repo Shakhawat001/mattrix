@@ -447,6 +447,7 @@ export type ConnectionOverview = {
   lastOkAt: Date | null
   lastError: string | null
   earningsError: string | null
+  legacyError: string | null
   createdAt: Date
   apps: number
   events: number
@@ -470,7 +471,7 @@ export async function getConnections(db: Db): Promise<ConnectionOverview[]> {
   return rows.map((c) => ({
     id: c.id, label: c.label, partnerId: c.partnerId, tokenHint: c.tokenHint, apiVersion: c.apiVersion, appGids: c.appGids, backfillFrom: c.backfillFrom,
     paused: c.paused, isDemo: c.isDemo, syncRequestedAt: c.syncRequestedAt, lastRunAt: c.lastRunAt, lastOkAt: c.lastOkAt, lastError: c.lastError,
-    earningsError: c.earningsError, createdAt: c.createdAt,
+    earningsError: c.earningsError, legacyError: c.legacyError, createdAt: c.createdAt,
     apps: countFor.get(c.id)?.apps ?? 0,
     events: countFor.get(c.id)?.events ?? 0,
     runs: runs.filter((r) => r.connectionId === c.id).slice(0, 5).map((r) => ({ id: r.id, trigger: r.trigger, startedAt: r.startedAt, ok: r.ok, eventsInserted: r.eventsInserted, error: r.error, durationMs: r.durationMs })),

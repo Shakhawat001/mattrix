@@ -9,6 +9,9 @@ import { fromMs } from "./range"
 // history that starts after the shops did (uninstalls and shops with no install, subscriptions
 // first seen in an update, paying shops with no subscription) and prices Shopify did not send.
 // Per connection: how far the syncs have read and how they went.
+//
+// The event counts include excluded shops, as stored. The gap checks leave them out: rebuildApp()
+// never reads their events, so nothing about them can be a gap in the numbers.
 
 const MONTHS = 12
 const RUNS = 5
@@ -46,6 +49,8 @@ export type AppHealth = {
   subscriptionsWithNoPrice: number
   /** The same by plan, most first. A usage-only plan of your own is expected here. */
   noPricePlans: { planHandle: string | null; count: number }[]
+  /** Shops on the excluded list (Settings) with events here. Their events are in the event counts and left out of the checks above. */
+  excludedShops: number
   /** When the derived tables and daily numbers were last built. */
   derivedAt: Date | null
   /** New events are waiting for the next rebuild. */
@@ -76,9 +81,10 @@ export type ConnectionHealth = {
   apiVersion: string
   /** How far back the history was asked for. Nothing before it is read. */
   backfillFrom: Date
-  /** How far each pass has read: the core events (installs, subscriptions, charges), and earnings. */
+  /** How far each pass has read: the core events (installs, subscriptions, charges), earnings, and the billing screen events of the older App.events. */
   coreWatermark: Date | null
   earningsWatermark: Date | null
+  legacyWatermark: Date | null
   /** A sync asked for in Settings that has not started yet. */
   syncRequestedAt: Date | null
   lastRunAt: Date | null
@@ -87,6 +93,8 @@ export type ConnectionHealth = {
   lastError: string | null
   /** Why the earnings pass failed, usually a token that cannot read earnings. The other events still sync. */
   earningsError: string | null
+  /** Why the billing screen pass failed. The other events still sync. */
+  legacyError: string | null
   /** The latest sync runs, newest first. */
   runs: SyncRunHealth[]
 }
@@ -108,6 +116,9 @@ function inList(ids: string[]): SQL {
 /** A timestamp for a raw query: text with a cast, because the driver cannot encode a Date it has no column for. */
 const ts = (ms: number): SQL => sql`${new Date(ms).toISOString()}::timestamptz`
 
+/** The shop is not on the excluded list, matched as rebuildApp() matches it. Pass a qualified column: `shop` alone would mean the list's own. */
+const notExcluded = (shop: SQL): SQL => sql`NOT EXISTS (SELECT 1 FROM excluded_shops x WHERE x.shop = lower(${shop}))`
+
 type Stamp = string | Date
 
 /** How complete the data of these apps is, and how their connections' syncs went. */
@@ -118,7 +129,7 @@ export async function getDataHealth(db: Queryable, appIds: string[], now: Date =
   if (appIds.length === 0) return { months, apps: [], connections: [] }
   const ids = inList(appIds)
 
-  const [appRows, typeRows, monthRows, uninstallRows, shopRows, noCreationRows, chargedRows, noPriceRows, connectionRows, runRows] = await Promise.all([
+  const [appRows, typeRows, monthRows, uninstallRows, shopRows, noCreationRows, chargedRows, noPriceRows, excludedRows, connectionRows, runRows] = await Promise.all([
     db
       .select({ id: apps.id, connectionId: apps.connectionId, derivedAt: apps.derivedAt, dirty: apps.dirty, deriveVersion: apps.deriveVersion })
       .from(apps)
@@ -142,7 +153,7 @@ export async function getDataHealth(db: Queryable, appIds: string[], now: Date =
                count(*) FILTER (WHERE type = 'RELATIONSHIP_INSTALLED')
                  OVER (PARTITION BY app_id, shop ORDER BY occurred_at, type = 'RELATIONSHIP_UNINSTALLED') AS installs_so_far
         FROM events
-        WHERE app_id IN ${ids} AND type IN ('RELATIONSHIP_INSTALLED', 'RELATIONSHIP_UNINSTALLED')
+        WHERE app_id IN ${ids} AND type IN ('RELATIONSHIP_INSTALLED', 'RELATIONSHIP_UNINSTALLED') AND ${notExcluded(sql`events.shop`)}
       )
       SELECT app_id, count(*)::int AS n FROM relationship
       WHERE type = 'RELATIONSHIP_UNINSTALLED' AND (shop IS NULL OR installs_so_far = 0)
@@ -151,7 +162,7 @@ export async function getDataHealth(db: Queryable, appIds: string[], now: Date =
     db.execute<{ app_id: string; n: number }>(sql`
       SELECT app_id, count(*)::int AS n FROM (
         SELECT app_id, shop FROM events
-        WHERE app_id IN ${ids} AND shop IS NOT NULL
+        WHERE app_id IN ${ids} AND shop IS NOT NULL AND ${notExcluded(sql`events.shop`)}
         GROUP BY app_id, shop
         HAVING bool_and(type <> 'RELATIONSHIP_INSTALLED')
       ) never_installed
@@ -160,7 +171,7 @@ export async function getDataHealth(db: Queryable, appIds: string[], now: Date =
     // A period derive() began from an update: no creation event opened it.
     db.execute<{ app_id: string; n: number }>(sql`
       SELECT s.app_id, count(*)::int AS n FROM subscriptions s
-      WHERE s.app_id IN ${ids} AND s.kind = 'new'
+      WHERE s.app_id IN ${ids} AND s.kind = 'new' AND ${notExcluded(sql`s.shop`)}
         AND NOT EXISTS (
           SELECT 1 FROM events e
           WHERE e.app_id = s.app_id AND e.shop = s.shop AND e.occurred_at = s.started_at AND e.type = 'SUBSCRIPTION_CREATED'
@@ -169,14 +180,14 @@ export async function getDataHealth(db: Queryable, appIds: string[], now: Date =
     `),
     db.execute<{ app_id: string; n: number }>(sql`
       SELECT e.app_id, count(DISTINCT e.shop)::int AS n FROM events e
-      WHERE e.app_id IN ${ids} AND e.type = 'CHARGE_RECURRING' AND e.amount_cents > 0 AND e.shop IS NOT NULL
+      WHERE e.app_id IN ${ids} AND e.type = 'CHARGE_RECURRING' AND e.amount_cents > 0 AND e.shop IS NOT NULL AND ${notExcluded(sql`e.shop`)}
         AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.app_id = e.app_id AND s.shop = e.shop)
       GROUP BY e.app_id
     `),
     // Only a new subscription can be priced at nothing: a plan change with no price keeps the one before.
     db.execute<{ app_id: string; plan_handle: string | null; n: number }>(sql`
       SELECT s.app_id, s.plan_handle, count(*)::int AS n FROM subscriptions s
-      WHERE s.app_id IN ${ids} AND s.kind = 'new' AND s.monthly_cents = 0
+      WHERE s.app_id IN ${ids} AND s.kind = 'new' AND s.monthly_cents = 0 AND ${notExcluded(sql`s.shop`)}
         AND NOT EXISTS (
           SELECT 1 FROM events e
           WHERE e.app_id = s.app_id AND e.shop = s.shop AND e.occurred_at = s.started_at
@@ -184,6 +195,12 @@ export async function getDataHealth(db: Queryable, appIds: string[], now: Date =
         )
       GROUP BY s.app_id, s.plan_handle
       ORDER BY n DESC, s.plan_handle NULLS LAST
+    `),
+    db.execute<{ app_id: string; n: number }>(sql`
+      SELECT e.app_id, count(DISTINCT x.shop)::int AS n FROM events e
+      JOIN excluded_shops x ON x.shop = lower(e.shop)
+      WHERE e.app_id IN ${ids}
+      GROUP BY e.app_id
     `),
     db
       .select({
@@ -195,11 +212,13 @@ export async function getDataHealth(db: Queryable, appIds: string[], now: Date =
         backfillFrom: connections.backfillFrom,
         coreWatermark: connections.coreWatermark,
         earningsWatermark: connections.earningsWatermark,
+        legacyWatermark: connections.legacyWatermark,
         syncRequestedAt: connections.syncRequestedAt,
         lastRunAt: connections.lastRunAt,
         lastOkAt: connections.lastOkAt,
         lastError: connections.lastError,
         earningsError: connections.earningsError,
+        legacyError: connections.legacyError,
       })
       .from(connections)
       .where(inArray(connections.id, db.select({ id: apps.connectionId }).from(apps).where(inArray(apps.id, appIds))))
@@ -234,6 +253,7 @@ export async function getDataHealth(db: Queryable, appIds: string[], now: Date =
   const neverInstalled = countBy(shopRows)
   const noCreation = countBy(noCreationRows)
   const charged = countBy(chargedRows)
+  const excluded = countBy(excludedRows)
 
   const byId = new Map(appRows.map((a) => [a.id, a]))
   const appHealth = appIds.flatMap((appId): AppHealth[] => {
@@ -267,6 +287,7 @@ export async function getDataHealth(db: Queryable, appIds: string[], now: Date =
         chargedShopsWithNoSubscription: charged.get(appId) ?? 0,
         subscriptionsWithNoPrice: noPricePlans.reduce((sum, p) => sum + p.count, 0),
         noPricePlans,
+        excludedShops: excluded.get(appId) ?? 0,
         derivedAt: app.derivedAt,
         dirty: app.dirty,
         rulesOutdated: app.deriveVersion < DERIVE_VERSION,

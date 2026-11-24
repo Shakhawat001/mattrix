@@ -106,6 +106,11 @@ export default async function SettingsPage() {
                     Installs, subscriptions and charges were read, but Shopify&apos;s earnings events were not: {c.earningsError}. Gross earnings, fees and net earnings stay empty until that is fixed.
                   </p>
                 ) : null}
+                {c.legacyError && !c.lastError ? (
+                  <p className="border-l-2 border-primary bg-muted px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+                    The billing screen events (charges accepted, declined or left to expire) could not be read from Shopify&apos;s older App.events: {c.legacyError}. Everything else still syncs.
+                  </p>
+                ) : null}
 
                 {c.runs.length > 0 ? (
                   <div className="-mx-(--card-spacing) overflow-x-auto">
