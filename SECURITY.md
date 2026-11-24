@@ -21,6 +21,12 @@ Please report a vulnerability privately, not in a public issue. Use the reposito
 - Sessions end after 24 hours without use, or 7 days in all. You can end them all from Settings.
 - The cookie is `HttpOnly`, `SameSite=Lax`, `Secure`, and uses the `__Host-` prefix over https.
 
+**API tokens**
+- For AI agents. A token is `amt_` and 256 random bits, shown once, when it is created. The database stores only an HMAC of it, keyed with `SESSION_SECRET` as sessions are, so a copy of the database cannot be turned into a token. Changing `SESSION_SECRET` ends every token, as it ends every session.
+- A token expires after 30, 90 or 365 days, or never, as chosen when it is created, and can be revoked in Settings at any moment. At most 20 are active at once. Its last use is recorded, at most once a minute.
+- A token can be set to hide shop domains, for an agent that should see a stable alias in place of each shop's address.
+- Nothing accepts tokens yet. The read-only MCP endpoint that will is next on the roadmap.
+
 **Access control**
 - Next.js's proxy only checks that a cookie exists, so it is a convenience, not a gate. A layout is not a gate either: Next.js can render a page without running the layouts above it. The session is therefore checked against the database in the data layer every page reads through, at the top of every page, in every Server Action and in every route handler. An app id in a URL is only read through the list of apps that are not hidden.
 - A page's database query is stopped after 30 seconds, so slow requests cannot hold the connection pool.

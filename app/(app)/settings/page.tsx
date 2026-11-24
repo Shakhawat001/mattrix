@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { PageHeader } from "@/components/app/page-header"
 import { AddConnectionForm } from "@/components/settings/add-connection-form"
+import { ApiTokensSection } from "@/components/settings/api-tokens-section"
 import { AppForm } from "@/components/settings/app-form"
 import { ConnectionActions } from "@/components/settings/connection-actions"
 import { SignOutEverywhere } from "@/components/settings/sign-out-everywhere"
@@ -165,6 +166,8 @@ export default async function SettingsPage() {
           </CardContent>
         </Card>
       </section>
+
+      <ApiTokensSection />
 
       <section aria-labelledby="system" className="flex flex-col gap-4">
         <h2 id="system" className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">

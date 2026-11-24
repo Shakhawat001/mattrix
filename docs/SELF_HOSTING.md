@@ -103,7 +103,7 @@ Your apps are found by themselves. Rename them, give them a color, or hide one i
 
 **Change the password.** Generate a new hash, change `DASHBOARD_PASSWORD_HASH`, redeploy, then use **Settings, Sign out everywhere**.
 
-**Rotate `SESSION_SECRET`.** Everyone is signed out; nothing else changes.
+**Rotate `SESSION_SECRET`.** Everyone is signed out and every API token stops working; create new tokens in **Settings, API tokens**. Nothing else changes.
 
 **Rotate `ENCRYPTION_KEY`.** The stored tokens can no longer be read. Remove and add the connection again.
 

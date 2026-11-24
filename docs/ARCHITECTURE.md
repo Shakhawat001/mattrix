@@ -62,7 +62,7 @@ app/            routes: (auth)/login, (app)/ for everything behind the login, ap
 components/     ui/ (shadcn), app/ (shell, filters, tiles), charts/, settings/
 lib/analytics/  derive, rebuild, aggregate, queries, matrix, view builders, metric registry
 lib/partner/    query, client, parse, sync, store
-lib/auth/       password, sessions, rate limit, cookies, the data access layer
+lib/auth/       password, sessions, API tokens, rate limit, cookies, the data access layer
 lib/db/         schema, client, migrations runner
 worker/         the background process
 cli/            migrate, seed-demo, generate-secrets, hash-password, check-env, probe
@@ -72,4 +72,4 @@ tests/          unit tests; tests/integration needs Postgres
 
 ## Tests
 
-Unit tests cover the pure code (the derive engine against a hand-computed history, the KPI maths, ranges and buckets, formatting, CSV, the Partner API client and parser, environment validation, password hashing). Integration tests run the real SQL against Postgres: sessions, login throttling, storing events, rebuilding, every query, the retention of the starting group, and the demo data's invariants. See [CONTRIBUTING.md](../CONTRIBUTING.md).
+Unit tests cover the pure code (the derive engine against a hand-computed history, the KPI maths, ranges and buckets, formatting, CSV, the Partner API client and parser, environment validation, password hashing). Integration tests run the real SQL against Postgres: sessions, API tokens, login throttling, storing events, rebuilding, every query, the retention of the starting group, and the demo data's invariants. See [CONTRIBUTING.md](../CONTRIBUTING.md).

@@ -1,5 +1,6 @@
 import { and, eq, lt, sql } from "drizzle-orm"
 import { rebuildStaleApps } from "@/lib/analytics/rebuild"
+import { purgeOldApiCalls } from "@/lib/auth/api-tokens"
 import { purgeExpiredSessions } from "@/lib/auth/sessions"
 import { createDatabase, type Database } from "@/lib/db/client"
 import { runMigrations } from "@/lib/db/migrate"
@@ -127,6 +128,7 @@ async function tick(database: Database, env: Env): Promise<void> {
 
 async function housekeeping(database: Database): Promise<void> {
   await purgeExpiredSessions(database.db)
+  await purgeOldApiCalls(database.db)
   await database.db.delete(syncRuns).where(lt(syncRuns.startedAt, sql`now() - make_interval(days => ${KEEP_RUNS_DAYS})`))
 }
 

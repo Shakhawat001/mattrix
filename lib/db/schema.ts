@@ -297,3 +297,38 @@ export const loginAttempts = pgTable(
   },
   (t) => [index("login_attempts_key_at_idx").on(t.key, t.at)],
 )
+
+/** Read-only tokens for AI agents (the MCP endpoint). Like sessions, only an HMAC of the token is stored. */
+export const apiTokens = pgTable(
+  "api_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    /** The last four characters, so tokens can be told apart. */
+    hint: text("hint").notNull(),
+    /** Shop domains are replaced by stable aliases in everything this token reads. */
+    hideShops: boolean("hide_shops").notNull().default(false),
+    createdAt: tz("created_at").notNull().defaultNow(),
+    lastUsedAt: tz("last_used_at"),
+    expiresAt: tz("expires_at"),
+    revokedAt: tz("revoked_at"),
+  },
+  (t) => [uniqueIndex("api_tokens_token_hash_uq").on(t.tokenHash)],
+)
+
+/** One row per tool call made with an API token. Kept for 30 days. */
+export const apiCalls = pgTable(
+  "api_calls",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    tokenId: uuid("token_id")
+      .notNull()
+      .references(() => apiTokens.id, { onDelete: "cascade" }),
+    at: tz("at").notNull().defaultNow(),
+    tool: text("tool").notNull(),
+    ok: boolean("ok").notNull(),
+    durationMs: integer("duration_ms").notNull(),
+  },
+  (t) => [index("api_calls_token_at_idx").on(t.tokenId, t.at)],
+)

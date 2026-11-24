@@ -66,7 +66,7 @@ Copy `.env.example` to `.env`. The ones you must set:
 | `DASHBOARD_USER` | The login name. Defaults to `admin`. |
 | `DASHBOARD_PASSWORD_HASH` | A hash of your password, from `hash-password`. Preferred. |
 | `DASHBOARD_PASSWORD` | Or the password itself, 12 characters or more. Set exactly one of the two. |
-| `SESSION_SECRET` | Signs session tokens. 32 or more random characters. |
+| `SESSION_SECRET` | Signs session tokens and API tokens. 32 or more random characters. |
 | `ENCRYPTION_KEY` | Encrypts stored Partner API tokens. 32 random bytes, base64. |
 
 The app refuses to start, and says why, if any of these is missing or weak. The optional ones (sync interval, proxy settings, demo mode) are described in `.env.example`.
