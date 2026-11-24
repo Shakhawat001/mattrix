@@ -54,10 +54,10 @@ export default async function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" description="Where the numbers come from, how your apps appear, and who is signed in." />
+      <PageHeader description="Where the numbers come from, how your apps appear, and who is signed in." />
 
       <section aria-labelledby="connections" className="flex flex-col gap-4">
-        <h2 id="connections" className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+        <h2 id="connections" className="font-heading text-base font-medium">
           Connections
         </h2>
 
@@ -159,7 +159,7 @@ export default async function SettingsPage() {
       </section>
 
       <section aria-labelledby="apps" className="flex flex-col gap-4">
-        <h2 id="apps" className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+        <h2 id="apps" className="font-heading text-base font-medium">
           Apps
         </h2>
         <Card size="sm">
@@ -189,7 +189,7 @@ export default async function SettingsPage() {
       <ApiTokensSection />
 
       <section aria-labelledby="system" className="flex flex-col gap-4">
-        <h2 id="system" className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+        <h2 id="system" className="font-heading text-base font-medium">
           System
         </h2>
         <Card size="sm">

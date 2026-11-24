@@ -3,7 +3,6 @@
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { carriedQuery } from "@/lib/analytics/url"
-import { cn } from "@/lib/utils"
 
 const TABS = [
   { slug: "", label: "Overview" },
@@ -16,13 +15,13 @@ const TABS = [
   { slug: "events", label: "Events" },
 ]
 
-/** The sections of one app. The range and comparison follow you from tab to tab. */
+/** The sections of one app, drawn like a tab list. The range and comparison follow you from tab to tab. */
 export function AppTabs({ appId }: { appId: string }) {
   const pathname = usePathname()
   const carry = carriedQuery(useSearchParams())
 
   return (
-    <nav aria-label="Sections of this app" className="flex gap-1 overflow-x-auto overflow-y-hidden border-b">
+    <nav aria-label="Sections of this app" className="flex h-9 w-fit max-w-full items-center overflow-x-auto overflow-y-hidden rounded-4xl bg-muted p-[3px] text-muted-foreground">
       {TABS.map((tab) => {
         const path = `/apps/${appId}${tab.slug ? `/${tab.slug}` : ""}`
         // A page inside a section, such as one shop's timeline, keeps its section's tab lit.
@@ -33,10 +32,8 @@ export function AppTabs({ appId }: { appId: string }) {
             key={tab.slug}
             href={`${path}${carry}`}
             aria-current={current ? "page" : active ? "true" : undefined}
-            className={cn(
-              "-mb-px border-b-2 px-3 py-2.5 text-xs font-semibold tracking-widest whitespace-nowrap uppercase outline-none transition-colors focus-visible:text-foreground",
-              active ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
-            )}
+            data-active={active || undefined}
+            className="inline-flex h-full items-center justify-center rounded-xl border border-transparent px-3 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all outline-none hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 data-active:bg-background data-active:text-foreground data-active:shadow-sm dark:text-muted-foreground dark:hover:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground"
           >
             {tab.label}
           </Link>

@@ -20,7 +20,7 @@ const GRANULARITIES = [
   { value: "month", label: "Month" },
 ]
 
-/** The one row of filters above everything it scopes: date range first, then comparison, bucket size and apps. */
+/** The one row of filters above everything it scopes: date range first, then comparison, bucket size and apps. In a wide header it sits beside the title, otherwise under it. */
 export function FilterBar({ apps, today, earliest }: { apps: FilterApp[]; today: string; earliest: string | null }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -36,7 +36,7 @@ export function FilterBar({ apps, today, earliest }: { apps: FilterApp[]; today:
   const onOverview = pathname === "/"
 
   return (
-    <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filters">
+    <div className="flex w-full flex-wrap items-center gap-2 @5xl/header:ml-auto @5xl/header:w-auto" role="group" aria-label="Filters">
       <DateRangePicker selection={selection} today={today} onChange={update} />
 
       <Select

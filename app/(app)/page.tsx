@@ -32,7 +32,6 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
   if (d.visible.length === 0) {
     return (
       <>
-        <PageHeader title="All apps" />
         <EmptyState icon={<TrendingUpIcon />} title={d.all.length > 0 ? "Every app is hidden" : "No apps yet"}>
           {d.all.length > 0 ? (
             <p>
@@ -75,7 +74,6 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
   return (
     <>
       <PageHeader
-        title="All apps"
         description={`${shown.length} ${shown.length === 1 ? "app" : "apps"}, ${formatRange(params.range)}${params.compared ? `, compared with ${formatRange(params.compared)}` : ""}.`}
         actions={<ExportLink params={{ kind: "daily", from: params.range.from, to: params.range.to, apps: params.appIds.join(",") }} label="Export daily numbers" />}
       />

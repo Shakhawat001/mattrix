@@ -1,13 +1,16 @@
 import type { ReactNode } from "react"
 
-/** `level` is the heading level: the app pages sit under the app's own h1, so they use h2. */
-export function PageHeader({ title, description, actions, level = 1 }: { title: string; description?: ReactNode; actions?: ReactNode; level?: 1 | 2 }) {
-  const Heading = level === 1 ? "h1" : "h2"
+/**
+ * The top of a page: its description and actions. The site header already shows the page's
+ * title as the h1, so a title here is a heading under it: the app pages name their section.
+ */
+export function PageHeader({ title, description, actions, level = 2 }: { title?: string; description?: ReactNode; actions?: ReactNode; level?: 2 | 3 }) {
+  const Heading = level === 2 ? "h2" : "h3"
   return (
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="min-w-0">
-        <Heading className={level === 1 ? "font-heading text-2xl font-semibold tracking-wider uppercase" : "font-heading text-lg font-semibold tracking-wider uppercase"}>{title}</Heading>
-        {description ? <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">{description}</p> : null}
+        {title ? <Heading className="font-heading text-xl font-semibold">{title}</Heading> : null}
+        {description ? <p className={title ? "mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground" : "max-w-2xl text-sm leading-relaxed text-muted-foreground"}>{description}</p> : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
@@ -19,7 +22,7 @@ export function SectionTitle({ children, description, level = 2 }: { children: R
   const Heading = level === 2 ? "h2" : "h3"
   return (
     <div className="flex flex-col gap-0.5">
-      <Heading className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">{children}</Heading>
+      <Heading className="font-heading text-base font-medium">{children}</Heading>
       {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
     </div>
   )
