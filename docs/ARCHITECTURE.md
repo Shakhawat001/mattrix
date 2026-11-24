@@ -15,6 +15,7 @@ Shopify Partner API
 - **web** serves the dashboard. It reads the database and nothing else. It never calls Shopify, so a slow or failing Shopify cannot slow a page down, and the Partner API token is never in the web process's request path.
 - **worker** is the only process that talks to Shopify. It syncs on a schedule, or when Settings asks, and keeps the derived tables and daily numbers current. It decrypts a token only to make a request.
 - **db** is Postgres 17. It is not published outside the Compose network.
+- **backup** uses the same Postgres image to dump the database every 12 hours into its own volume, keeping 14 days. See [SELF_HOSTING.md](SELF_HOSTING.md#7-day-to-day).
 
 Web and worker are the same image with a different command (`docker/entrypoint.sh`).
 

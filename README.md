@@ -48,7 +48,7 @@ Open http://localhost:3000 and sign in. The demo is three invented apps with a y
 
 ## How it works
 
-Three containers: `web` (the dashboard), `worker` (the only thing that talks to Shopify) and `db` (Postgres).
+Three containers: `web` (the dashboard), `worker` (the only thing that talks to Shopify) and `db` (Postgres), plus a small `backup` container that dumps the database every 12 hours.
 
 1. The worker reads new events from the Partner API on a schedule and stores each one once.
 2. It rebuilds, from the events, one record per stay of a shop, per subscription period and per free trial, and sums them into a daily table.
