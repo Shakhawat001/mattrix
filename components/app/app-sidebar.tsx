@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { useTheme } from "next-themes"
-import { ChartLineUpIcon, GearSixIcon, MoonIcon, SignOutIcon, SquaresFourIcon, SunIcon } from "@phosphor-icons/react"
+import { TrendingUpIcon, SettingsIcon, MoonIcon, LogOutIcon, LayoutGridIcon, SunIcon } from "lucide-react"
 import { logout } from "@/app/(auth)/login/actions"
 import {
   Sidebar,
@@ -33,7 +33,7 @@ export function AppSidebar({ apps, brandName }: { apps: FilterApp[]; brandName: 
       <SidebarHeader className="px-4 py-4">
         <Link href={`/${carry}`} className="flex items-center gap-2.5 outline-none">
           <span className="flex size-8 items-center justify-center bg-primary text-primary-foreground">
-            <ChartLineUpIcon weight="bold" className="size-4" aria-hidden />
+            <TrendingUpIcon strokeWidth={2.5} className="size-4" aria-hidden />
           </span>
           <span className="font-heading text-base font-semibold tracking-wider uppercase">{brandName}</span>
         </Link>
@@ -46,7 +46,7 @@ export function AppSidebar({ apps, brandName }: { apps: FilterApp[]; brandName: 
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton isActive={pathname === "/"} render={<Link href={`/${carry}`} />}>
-                  <SquaresFourIcon aria-hidden />
+                  <LayoutGridIcon aria-hidden />
                   <span>All apps</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -77,7 +77,7 @@ export function AppSidebar({ apps, brandName }: { apps: FilterApp[]; brandName: 
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton isActive={pathname.startsWith("/settings")} render={<Link href="/settings" />}>
-                  <GearSixIcon aria-hidden />
+                  <SettingsIcon aria-hidden />
                   <span>Settings</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -100,7 +100,7 @@ export function AppSidebar({ apps, brandName }: { apps: FilterApp[]; brandName: 
           <SidebarMenuItem>
             <form action={logout}>
               <SidebarMenuButton type="submit">
-                <SignOutIcon aria-hidden />
+                <LogOutIcon aria-hidden />
                 <span>Sign out</span>
               </SidebarMenuButton>
             </form>

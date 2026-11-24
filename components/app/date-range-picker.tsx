@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { CalendarBlankIcon, CheckIcon } from "@phosphor-icons/react"
+import { CalendarIcon, CheckIcon } from "lucide-react"
 import type { DateRange } from "react-day-picker"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
@@ -67,7 +67,7 @@ export function DateRangePicker({ selection, today, onChange }: Props) {
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger render={<Button variant="outline" size="sm" className="gap-2" />}>
-        <CalendarBlankIcon aria-hidden />
+        <CalendarIcon aria-hidden />
         <span>{selection.label}</span>
         {selection.presetKey ? <span className="hidden font-normal tracking-normal text-muted-foreground normal-case lg:inline">{formatRange(selection.range)}</span> : null}
       </PopoverTrigger>
@@ -82,7 +82,7 @@ export function DateRangePicker({ selection, today, onChange }: Props) {
                   className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm whitespace-nowrap outline-none hover:bg-muted focus-visible:bg-muted"
                 >
                   {preset.label}
-                  {selection.presetKey === preset.key ? <CheckIcon weight="bold" className="size-4" aria-label="Selected" /> : null}
+                  {selection.presetKey === preset.key ? <CheckIcon strokeWidth={2.5} className="size-4" aria-label="Selected" /> : null}
                 </button>
               </li>
             ))}

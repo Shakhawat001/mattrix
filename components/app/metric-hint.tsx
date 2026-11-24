@@ -1,6 +1,6 @@
 "use client"
 
-import { InfoIcon } from "@phosphor-icons/react"
+import { InfoIcon } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 /** An (i) that explains a number in plain words. Reachable by keyboard, not only by hover. */

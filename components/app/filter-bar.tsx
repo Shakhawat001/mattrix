@@ -1,6 +1,6 @@
 "use client"
 
-import { AppWindowIcon } from "@phosphor-icons/react"
+import { AppWindowIcon } from "lucide-react"
 import { usePathname, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"

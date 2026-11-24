@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import Link from "next/link"
-import { CaretDownIcon, CaretUpIcon } from "@phosphor-icons/react"
+import { ChevronDownIcon, ChevronUpIcon } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { METRICS, shortLabel, type MetricId } from "@/lib/analytics/metrics-registry"
@@ -51,7 +51,7 @@ export function MatrixTable({ rows, total, columns, title, description }: { rows
     const button = (
       <button type="button" onClick={() => sortBy(by)} className={cn("inline-flex items-center gap-1 text-xs font-medium tracking-wider whitespace-nowrap text-muted-foreground uppercase outline-none hover:text-foreground focus-visible:text-foreground", align === "right" && "flex-row-reverse")} />
     )
-    const arrow = sort.by === by ? sort.desc ? <CaretDownIcon weight="bold" className="size-3" aria-hidden /> : <CaretUpIcon weight="bold" className="size-3" aria-hidden /> : <span className="size-3" aria-hidden />
+    const arrow = sort.by === by ? sort.desc ? <ChevronDownIcon strokeWidth={2.5} className="size-3" aria-hidden /> : <ChevronUpIcon strokeWidth={2.5} className="size-3" aria-hidden /> : <span className="size-3" aria-hidden />
     return (
       <th
         key={by}

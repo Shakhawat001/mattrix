@@ -1,4 +1,4 @@
-import { DownloadSimpleIcon } from "@phosphor-icons/react/dist/ssr"
+import { DownloadIcon } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
 
 /** A link to a CSV download. The route checks the session itself, so the link can be shown anywhere behind the login. */
@@ -7,7 +7,7 @@ export function ExportLink({ params, label = "Export CSV" }: { params: Record<st
   for (const [name, value] of Object.entries(params)) if (value) query.set(name, value)
   return (
     <a href={`/api/export?${query.toString()}`} download className={buttonVariants({ variant: "outline", size: "sm" })}>
-      <DownloadSimpleIcon aria-hidden />
+      <DownloadIcon aria-hidden />
       {label}
     </a>
   )

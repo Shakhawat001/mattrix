@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { Geist_Mono, Noto_Sans, Space_Grotesk } from "next/font/google"
+import { Geist_Mono, Inter } from "next/font/google"
 
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
@@ -8,8 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { BRAND } from "@/lib/brand"
 import { cn } from "@/lib/utils"
 
-const notoSansHeading = Noto_Sans({ subsets: ["latin"], variable: "--font-heading" })
-const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-sans" })
+const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
 const fontMono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" })
 
 export const metadata: Metadata = {
@@ -23,7 +22,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("antialiased", fontMono.variable, "font-sans", spaceGrotesk.variable, notoSansHeading.variable)}
+      className={cn("antialiased", fontMono.variable, "font-sans", inter.variable)}
     >
       <body>
         <ThemeProvider>

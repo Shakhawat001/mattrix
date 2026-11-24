@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import Link from "next/link"
-import { ChartLineUpIcon } from "@phosphor-icons/react/dist/ssr"
+import { TrendingUpIcon } from "lucide-react"
 import { AT_RISK_ROWS, AtRiskCard } from "@/components/app/at-risk"
 import { EmptyState } from "@/components/app/empty-state"
 import { ExportLink } from "@/components/app/export-link"
@@ -33,7 +33,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
     return (
       <>
         <PageHeader title="All apps" />
-        <EmptyState icon={<ChartLineUpIcon />} title={d.all.length > 0 ? "Every app is hidden" : "No apps yet"}>
+        <EmptyState icon={<TrendingUpIcon />} title={d.all.length > 0 ? "Every app is hidden" : "No apps yet"}>
           {d.all.length > 0 ? (
             <p>
               Show an app again in{" "}

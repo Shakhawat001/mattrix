@@ -1,4 +1,4 @@
-import { ArrowDownIcon, ArrowUpIcon, MinusIcon } from "@phosphor-icons/react/dist/ssr"
+import { ArrowDownIcon, ArrowUpIcon, MinusIcon } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import type { Kpis, SeriesPoint } from "@/lib/analytics/aggregate"
 import { METRICS, metricValue, type MetricId } from "@/lib/analytics/metrics-registry"
@@ -21,7 +21,7 @@ function Delta({ change, caption, previous }: { change: Change; caption: string;
   const direction = change.text.startsWith("+") ? "Up" : change.text.startsWith("-") ? "Down" : null
   return (
     <p className={cn("flex items-center gap-1 text-xs", TONE[change.tone])} title={`Before: ${previous}`}>
-      {change.tone === "none" ? null : <Icon weight="bold" className="size-3" aria-hidden />}
+      {change.tone === "none" ? null : <Icon strokeWidth={2.5} className="size-3" aria-hidden />}
       {direction ? <span className="sr-only">{direction} </span> : null}
       <span className="font-medium tabular-nums">{change.text}</span>
       <span className="text-muted-foreground">{caption}</span>

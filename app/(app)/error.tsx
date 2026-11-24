@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
-import { WarningIcon } from "@phosphor-icons/react"
+import { TriangleAlertIcon } from "lucide-react"
 import { EmptyState } from "@/components/app/empty-state"
 import { Button } from "@/components/ui/button"
 
@@ -15,7 +15,7 @@ export default function PageError({ error, retry }: { error: unknown; retry: () 
   }, [error])
 
   return (
-    <EmptyState icon={<WarningIcon />} title="Something went wrong">
+    <EmptyState icon={<TriangleAlertIcon />} title="Something went wrong">
       <p>This page could not be built. Your data is safe. If it keeps happening, check the web container&apos;s log{digest ? ` for ${digest}` : ""}.</p>
       <Button className="mt-4" variant="outline" size="sm" onClick={() => retry()}>
         Try again
