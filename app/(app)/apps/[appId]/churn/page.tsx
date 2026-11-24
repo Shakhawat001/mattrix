@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { ChurnByCause } from "@/components/app/churn-by-cause"
 import { StatGrid } from "@/components/app/kpi-card"
 import { PageHeader } from "@/components/app/page-header"
 import { WinBackCard } from "@/components/app/win-back"
@@ -32,6 +33,8 @@ export default async function ChurnPage({ params, searchParams }: { params: Prom
       <PageHeader level={2} title="Churn" description={`Why shops leave, ${formatRange(p.range)}.`} />
 
       <StatGrid ids={["uninstalls", "uninstallRate", "canceledSubs", "churnedMrr"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} />
+
+      <ChurnByCause kpis={kpis} compared={comparedKpis} caption={caption} points={points} rows={rows} range={p.range} granularity={gran} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard title="Uninstalls" description="Shops that removed the app in each period." data={totals(rows, p.range, gran, [{ key: "uninstalls", label: "Uninstalls", color: slotColor(0), read: readers.uninstalls }], "int")} kind="stack" granularity={gran} />

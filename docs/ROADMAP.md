@@ -39,7 +39,7 @@ What we build next, in order. Written 24 November 2026. Tick an item in the same
 ### 1.3 Churn by cause
 
 - [x] Use `RELATIONSHIP_DEACTIVATED` and `RELATIONSHIP_REACTIVATED` (stored, unused until now) and frozen subscriptions to split losses into "the merchant left" and "the store closed or stopped paying Shopify".
-- [ ] New numbers: deactivations, reactivations, churned MRR and canceled subscribers by cause. Shown on the churn page.
+- [x] New numbers: deactivations, reactivations, churned MRR and canceled subscribers by cause. Shown on the churn page.
 
 ### 1.4 At risk
 

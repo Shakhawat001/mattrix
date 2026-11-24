@@ -1,7 +1,7 @@
 import { bucketSeries, seriesByApp, type MetricKey, type SeriesPoint, type DayRow } from "./aggregate"
 import type { MetricFormat, MetricId } from "./metrics-registry"
 import { bucketLabel, formatDate, type Granularity, type Range } from "./range"
-import { MOVEMENT_SERIES, slotColor, type AppSeries, type SeriesDef } from "./series"
+import { CAUSE_SERIES, MOVEMENT_SERIES, slotColor, type AppSeries, type SeriesDef } from "./series"
 
 // Turns the rollup into what a chart draws: one object per bucket, keyed by series. These are
 // plain functions of rows, so they are tested without a browser.
@@ -79,6 +79,8 @@ export const readers = {
   negCanceledSubs: (p) => 0 - p.canceledSubs,
   activeSubs: (p) => p.activeSubs,
   mrr: (p) => p.mrrCents,
+  churnedMrrStoreInactive: (p) => p.churnedMrrStoreInactiveCents,
+  churnedMrrMerchantLeft: (p) => p.churnedMrrCents - p.churnedMrrStoreInactiveCents,
   netEarned: (p) => p.netEarnedCents,
   fees: (p) => p.feeCents,
   grossEarned: (p) => p.grossEarnedCents,
@@ -113,8 +115,8 @@ export const SPARK: Partial<Record<MetricId, (p: SeriesPoint) => number>> = {
   expansionMrr: (p) => p.expansionMrrCents,
   contractionMrr: (p) => p.contractionMrrCents,
   churnedMrr: (p) => p.churnedMrrCents,
-  churnedMrrStoreInactive: (p) => p.churnedMrrStoreInactiveCents,
-  churnedMrrMerchantLeft: (p) => p.churnedMrrCents - p.churnedMrrStoreInactiveCents,
+  churnedMrrStoreInactive: readers.churnedMrrStoreInactive,
+  churnedMrrMerchantLeft: readers.churnedMrrMerchantLeft,
   netNewMrr: (p) => p.newMrrCents + p.expansionMrrCents - p.contractionMrrCents - p.churnedMrrCents,
   trialsStarted: readers.trialsStarted,
   trialsConverted: readers.trialsConverted,
@@ -136,6 +138,12 @@ export function sparkValues(points: SeriesPoint[], metric: MetricId): number[] {
 // Fixed series for the charts that repeat on several pages, so a measure keeps one hue everywhere.
 /** New and expansion MRR above the zero line, contraction and churn below it. */
 export const MRR_MOVEMENT: TotalDef[] = MOVEMENT_SERIES.map(({ key, label, color, metric, sign }) => ({ key, label, color, read: (p) => sign * p[metric] || 0 }))
+
+/** Churned MRR by cause, stacked: the two parts add up to the churned MRR. */
+export const CHURN_BY_CAUSE: TotalDef[] = [
+  { ...CAUSE_SERIES.storeInactive, read: readers.churnedMrrStoreInactive },
+  { ...CAUSE_SERIES.merchantLeft, read: readers.churnedMrrMerchantLeft },
+]
 
 export const INSTALLS_AND_UNINSTALLS: TotalDef[] = [
   { key: "installs", label: "Installs", color: slotColor(0), read: readers.installs },

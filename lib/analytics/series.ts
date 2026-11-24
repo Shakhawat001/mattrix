@@ -55,3 +55,9 @@ export const MOVEMENT_SERIES: (SeriesDef & { metric: "newMrrCents" | "expansionM
   { key: "contraction", label: "Contraction", metric: "contractionMrrCents", sign: -1, color: slotColor(2) },
   { key: "churn", label: "Churn", metric: "churnedMrrCents", sign: -1, color: slotColor(3) },
 ]
+
+/** The fixed colors for the two causes of a loss, so a cause is the same hue on every chart that splits one. */
+export const CAUSE_SERIES = {
+  storeInactive: { key: "storeInactive", label: "Store inactive", color: slotColor(0) },
+  merchantLeft: { key: "merchantLeft", label: "Merchant left", color: slotColor(1) },
+} satisfies Record<string, SeriesDef>

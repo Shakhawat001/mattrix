@@ -3,7 +3,7 @@ import { FLOW_KEYS, STOCK_KEYS, kpis, bucketSeries, type DayRow, type Flows, typ
 import { METRICS, type MetricId } from "@/lib/analytics/metrics-registry"
 import { OTHER_COLOR, OTHER_KEY, SLOT_COUNT, appColors, appSeries, slotColor, swatchColor } from "@/lib/analytics/series"
 import { CARRIED_PARAMS, carriedQuery, compareLabel, selectionFrom, withParams } from "@/lib/analytics/url"
-import { SPARK, bucketTitle, byApp, readers, single, sparkValues, totals, INSTALLS_AND_UNINSTALLS, MRR_MOVEMENT } from "@/lib/analytics/view"
+import { SPARK, bucketTitle, byApp, readers, single, sparkValues, totals, CHURN_BY_CAUSE, INSTALLS_AND_UNINSTALLS, MRR_MOVEMENT } from "@/lib/analytics/view"
 
 const zero = <K extends string>(keys: readonly K[]) => Object.fromEntries(keys.map((k) => [k, 0])) as Record<K, number>
 const row = (appId: string, date: string, over: Partial<Flows & Stocks> = {}): DayRow => ({ appId, date, ...zero(FLOW_KEYS), ...zero(STOCK_KEYS), ...over })
@@ -94,6 +94,26 @@ describe("chart data", () => {
     const data = totals(rows, { from: "2026-11-01", to: "2026-11-01" }, "day", INSTALLS_AND_UNINSTALLS, "int")
     expect(data.points[0]).toMatchObject({ installs: 5, uninstalls: -2 })
     expect(data.series.map((s) => s.label)).toEqual(["Installs", "Uninstalls"])
+  })
+
+  it("splits churned MRR by cause into two parts that add up to it in each bucket", () => {
+    // Week of Nov 2: app a lost $9, $3 of it a store going inactive; app b lost $1 to a merchant leaving.
+    // Week of Nov 9: app a lost $5, all of it a store going inactive.
+    const rows = [
+      row("a", "2026-11-02", { churnedMrrCents: 900, churnedMrrStoreInactiveCents: 300 }),
+      row("b", "2026-11-04", { churnedMrrCents: 100 }),
+      row("a", "2026-11-09", { churnedMrrCents: 500, churnedMrrStoreInactiveCents: 500 }),
+    ]
+    const data = totals(rows, { from: "2026-11-02", to: "2026-11-15" }, "week", CHURN_BY_CAUSE, "money")
+    expect(data.points).toEqual([
+      { bucket: "2026-11-02", storeInactive: 300, merchantLeft: 700 },
+      { bucket: "2026-11-09", storeInactive: 500, merchantLeft: 0 },
+    ])
+    // Fixed hues in slot order, like MRR movement, so a cause keeps its color.
+    expect(data.series).toEqual([
+      { key: "storeInactive", label: "Store inactive", color: slotColor(0) },
+      { key: "merchantLeft", label: "Merchant left", color: slotColor(1) },
+    ])
   })
 
   it("lines up a comparison range bucket by bucket", () => {

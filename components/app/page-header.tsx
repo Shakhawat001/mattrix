@@ -14,11 +14,12 @@ export function PageHeader({ title, description, actions, level = 1 }: { title: 
   )
 }
 
-/** A heading for a group of cards on a page. */
-export function SectionTitle({ children, description }: { children: ReactNode; description?: ReactNode }) {
+/** A heading for a group of cards on a page. On an app's page, under its h2, it is an h3. */
+export function SectionTitle({ children, description, level = 2 }: { children: ReactNode; description?: ReactNode; level?: 2 | 3 }) {
+  const Heading = level === 2 ? "h2" : "h3"
   return (
     <div className="flex flex-col gap-0.5">
-      <h2 className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">{children}</h2>
+      <Heading className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">{children}</Heading>
       {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
     </div>
   )
