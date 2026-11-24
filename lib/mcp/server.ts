@@ -5,7 +5,7 @@ import { log } from "@/lib/log"
 import type { McpContext } from "./context"
 import { DEFINITIONS_URI, renderDefinitionsMarkdown } from "./definitions"
 import { hideShopDomains, type Envelope } from "./output"
-import { ToolError, type McpTool } from "./tool"
+import { strictInput, ToolError, type McpTool } from "./tool"
 import * as tools from "./tools"
 
 // The MCP server, built fresh for every request around that request's context: the SDK's model for
@@ -46,7 +46,7 @@ export function buildServer(ctx: McpContext): McpServer {
 }
 
 function registerTool(server: McpServer, tool: McpTool, ctx: McpContext): void {
-  server.registerTool(tool.name, { title: tool.title, description: tool.description, inputSchema: tool.input, annotations: READ_ONLY }, async (input) => {
+  server.registerTool(tool.name, { title: tool.title, description: tool.description, inputSchema: strictInput(tool), annotations: READ_ONLY }, async (input) => {
     try {
       const answer = await tool.run(ctx, input)
       return toolResult(ctx.hideShops ? hideShopDomains(answer, ctx.aliasOf) : answer)

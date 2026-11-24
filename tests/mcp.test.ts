@@ -1,18 +1,33 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { AT_RISK_METRICS, COHORT_METRICS, METRICS } from "@/lib/analytics/metrics-registry"
 import type { AppInfo, ConnectionOverview } from "@/lib/analytics/queries"
+import type { Db } from "@/lib/db/client"
 import { log } from "@/lib/log"
 import { bearerToken, unauthorized } from "@/lib/mcp/auth"
+import { createContext } from "@/lib/mcp/context"
 import { CONVENTION_TEXT, METRIC_DEFINITIONS, renderDefinitionsMarkdown } from "@/lib/mcp/definitions"
 import { describeCall, exchangeFailed } from "@/lib/mcp/http"
 import { envelope } from "@/lib/mcp/output"
-import { TOOLS, toolError, toolResult } from "@/lib/mcp/server"
+import { mcpHandler, toAuthInfo, TOOLS, toolError, toolResult } from "@/lib/mcp/server"
 import { ToolError } from "@/lib/mcp/tool"
 import { describeApps, earningsReadable } from "@/lib/mcp/tools/list-apps"
 
 afterEach(() => {
   vi.restoreAllMocks()
 })
+
+const META = { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {} }
+
+/** A request through the SDK's real handler and the real tools. It never reaches the database: the tools are listed, or refused before they run. */
+async function rpc(method: string, params: Record<string, unknown>) {
+  const ctx = createContext({ db: {} as Db, secret: "a-session-secret-that-is-long-enough-123456", token: { id: "token-1", name: "Test", hideShops: false } })
+  const body = { jsonrpc: "2.0", id: 1, method, params: { ...params, _meta: META } }
+  const headers: Record<string, string> = { "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2026-07-28", "mcp-method": method }
+  if (typeof params.name === "string") headers["mcp-name"] = params.name
+  const response = await mcpHandler().fetch(new Request("http://localhost/api/mcp", { method: "POST", headers, body: JSON.stringify(body) }), { authInfo: toAuthInfo(ctx), parsedBody: body })
+  expect(response.status).toBe(200)
+  return (await response.json()).result
+}
 
 describe("bearerToken", () => {
   it("reads the token from an Authorization: Bearer header, in any case", () => {
@@ -132,6 +147,29 @@ describe("the tools", () => {
         .map(([name]) => name)
       expect(required, tool.name).toEqual(tool.name === "get_shop_timeline" ? ["app_id", "shop"] : [])
     }
+  })
+
+  it("refuse an argument they do not take, naming it and the ones they do", async () => {
+    // An agent that wrote range for preset used to get the default 30 days, and no word of it.
+    expect(await rpc("tools/call", { name: "get_metrics", arguments: { range: "last_90_days" } })).toMatchObject({
+      content: [{ type: "text", text: 'Input validation error: Invalid arguments for tool get_metrics: Unknown argument "range". get_metrics takes app_ids, preset, from, to, compare and metrics.' }],
+      isError: true,
+    })
+    for (const tool of TOOLS) {
+      const result = await rpc("tools/call", { name: tool.name, arguments: { range: "last_90_days", period: 7 } })
+      expect(result.isError, tool.name).toBe(true)
+      const text: string = result.content[0].text
+      expect(text, tool.name).toContain('Unknown arguments "range" and "period".')
+      const fields = Object.keys(tool.input.shape)
+      if (fields.length === 0) expect(text, tool.name).toContain(`${tool.name} takes no arguments.`)
+      for (const field of fields) expect(text, tool.name).toContain(field)
+    }
+  })
+
+  it("tell clients in their schema that they take no other argument", async () => {
+    const { tools } = await rpc("tools/list", {})
+    expect(tools).toHaveLength(TOOLS.length)
+    for (const tool of tools) expect(tool.inputSchema.additionalProperties, tool.name).toBe(false)
   })
 })
 
