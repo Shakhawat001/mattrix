@@ -21,8 +21,9 @@ import { EVENT, LEGACY_EVENT_TYPES } from "@/lib/partner/query"
 //     later date, otherwise the moment of the event. The period keeps when the cancel was first
 //     scheduled and the day it takes effect, so a subscription set to end can be listed until then.
 //   - Subscription events carry no subscription id, so a plan change has to be recognized: a
-//     second subscription while one is open, a cancel naming another plan moments after a new one
-//     began, or a cancel followed within minutes by a new subscription are all one plan change.
+//     second subscription while one is open, a cancel (or a scheduled cancel) naming another plan
+//     moments after a new one began, or a cancel followed within minutes by a new subscription are
+//     all one plan change.
 //   - A loss has one of two causes. A freeze, or a cancel or an uninstall while Shopify has the
 //     store's billing account deactivated (closed, paused or unpaid: a deactivation since its latest
 //     install, with no reactivation since), is the store going inactive. Anything else is the
@@ -37,7 +38,7 @@ import { EVENT, LEGACY_EVENT_TYPES } from "@/lib/partner/query"
  * the worker rebuilds any app built with an older one, so a deploy that changes a rule recomputes
  * all of history. Bump it with every change to what derive() returns.
  */
-export const DERIVE_VERSION = 6
+export const DERIVE_VERSION = 7
 
 const DAY_MS = 86_400_000
 /** A cancel and a new subscription this close together are one plan change, not a loss and a new sale. */
@@ -449,6 +450,8 @@ export function derive(events: RawEvent[], now: Date): Derived {
 
       case EVENT.SUB_CANCELLATION_SCHEDULED: {
         if (!s.sub || !e.cancelEffectiveOn) break
+        // As with a cancel: one naming another plan, moments after a new one began, is for the plan it replaced.
+        if (!namesSamePlan(s.sub, e) && e.occurredAt.getTime() - s.sub.startedAt.getTime() <= REPLACE_WINDOW_MS) break
         const effective = startOfUtcDay(e.cancelEffectiveOn)
         if (effective.getTime() > e.occurredAt.getTime()) scheduleCancel(s.sub, e.occurredAt, effective)
         else closePeriod(s, e.occurredAt, "canceled")
