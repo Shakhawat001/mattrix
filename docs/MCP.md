@@ -150,6 +150,6 @@ If a client cannot connect: 401 means the token is missing, mistyped, revoked or
 Whatever a tool returns goes to the AI provider your agent runs on. Shopify's [API License and Terms of Use](https://www.shopify.com/legal/api-terms) (section 2.3, as updated October 7, 2026) forbid using information derived from Shopify's APIs, including anonymous, aggregate or derived data, to create, train, fine tune or improve machine learning or AI models. Every number here comes from the Partner API, so:
 
 - Connect AI accounts that do not train on your data. Check your provider's data settings and terms before you connect one.
-- Tick **Hide shop domains** on the token if you prefer the provider not to see your shops' addresses. The agent still sees the numbers, a stable alias for each shop, and what merchants wrote, with any myshopify.com address in it replaced by its alias. It gives the alias back to look a shop up, and cannot search or sort shops by domain.
+- Tick **Hide shop domains** on the token if you prefer the provider not to see your shops' addresses. The agent still sees the numbers, a stable alias for each shop, and what merchants wrote. Any myshopify.com address anywhere in an answer or an error, in what merchants wrote or in a sync error, is replaced by its alias too. It gives the alias back to look a shop up, and cannot search or sort shops by domain.
 
 The same terms also limit passing data from Shopify to third parties (sections 2.1 and 6.2). Read them for your own case; this page is not legal advice.

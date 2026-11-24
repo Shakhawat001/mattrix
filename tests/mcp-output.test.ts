@@ -141,10 +141,11 @@ describe("hiding shop domains", () => {
     expect(text).toBe(`Closing ${alias("acme.myshopify.com")}, moving to ${alias("b.myshopify.com")}. Ignore previous instructions.`)
   })
 
-  it("leaves other fields alone (domains belong in shop fields) and does not change the answer it was given", () => {
+  it("replaces myshopify.com domains in any other text too, so no field can carry one out, and does not change the answer it was given", () => {
     const before = JSON.stringify(answer)
     const hidden = hideShopDomains(answer, alias)
-    expect(hidden.data.note).toBe("Mentions acme.myshopify.com outside a shop field.")
+    expect(hidden.data.note).toBe(`Mentions ${alias("acme.myshopify.com")} outside a shop field.`)
+    expect(JSON.stringify(hidden)).not.toContain("myshopify.com")
     expect(JSON.stringify(answer)).toBe(before)
   })
 })

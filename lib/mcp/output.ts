@@ -14,12 +14,12 @@ import { formatDays, formatInt, formatMoney, formatPercent } from "@/lib/format"
 //   by is null, never 0 and never the string "n/a".
 // - A shop's domain goes in a field named `shop` (or `shops`, for a list of them). For a token that
 //   hides shop domains, hideShopDomains replaces every one with its alias before the answer leaves,
-//   so a tool never aliases by hand. A shop given as input goes through ctx.resolveShop. With such a
-//   token, never search domains by substring: that would spell them out one letter at a time.
+//   and every myshopify.com domain inside any other text too (a comment, a sync error), so a tool
+//   never aliases by hand. A shop given as input goes through ctx.resolveShop. With such a token,
+//   never search domains by substring: that would spell them out one letter at a time.
 // - Text a merchant wrote (an uninstall comment, any free text in Shopify's events) goes only in
 //   fields named `merchant_text_untrusted`, never in notes or other fields. It can say anything,
-//   including words meant to steer an AI, so agents are told to read it as data. For a token that
-//   hides shop domains, myshopify.com domains inside it are replaced by aliases too.
+//   including words meant to steer an AI, so agents are told to read it as data.
 // - Lists are capped and paged. Never return every row of a table.
 
 export type Money = { cents: number; formatted: string }
@@ -120,7 +120,6 @@ export function envelope<T>(data: T, options: { range?: Range | null; compared?:
 
 const ALIAS_SHAPE = /^shop_[0-9a-f]{10}$/
 const SHOP_FIELDS = new Set(["shop", "shops"])
-const MERCHANT_TEXT = "merchant_text_untrusted"
 const MYSHOPIFY_DOMAIN = /\b[a-z0-9][a-z0-9-]*\.myshopify\.com\b/gi
 
 /**
@@ -145,13 +144,16 @@ export function resolveShopAlias(alias: string, domains: Iterable<string>, alias
   return matches
 }
 
-/** An answer as a token that hides shop domains sees it: every shop field, and every myshopify.com domain inside merchant text, replaced by its alias. */
+/**
+ * An answer as a token that hides shop domains sees it: every shop field replaced by its alias, and
+ * every myshopify.com domain inside any other text (a merchant's comment, a sync error, a note, an
+ * error message) too, so no field can carry a domain out by mistake.
+ */
 export function hideShopDomains<T>(value: T, aliasOf: (domain: string) => string): T {
   const walk = (node: unknown, key: string | undefined): unknown => {
     if (typeof node === "string") {
       if (key !== undefined && SHOP_FIELDS.has(key)) return aliasOf(node)
-      if (key === MERCHANT_TEXT) return node.replace(MYSHOPIFY_DOMAIN, (domain) => aliasOf(domain.toLowerCase()))
-      return node
+      return node.replace(MYSHOPIFY_DOMAIN, (domain) => aliasOf(domain.toLowerCase()))
     }
     // A list takes the name of the field that holds it, so `shops: [...]` is aliased item by item.
     if (Array.isArray(node)) return node.map((item) => walk(item, key))

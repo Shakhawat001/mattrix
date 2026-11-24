@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto"
-import { eq, inArray } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { POST } from "@/app/api/mcp/route"
 import { addRetention, bucketSeries, cohortRetention, kpisFor, seriesByApp } from "@/lib/analytics/aggregate"
 import { getAtRisk } from "@/lib/analytics/at-risk"
 import { getDataHealth } from "@/lib/analytics/data-health"
+import { addExcludedShop, removeExcludedShop } from "@/lib/analytics/excluded-shops"
 import { AT_RISK_METRICS, METRICS, type MetricId } from "@/lib/analytics/metrics-registry"
 import { getMrrMovers } from "@/lib/analytics/mrr-movers"
 import { getDayRows, getExplanations, getLifetimeStats, getReasons, getRetention, getStays, getTrialStats, listApps, listShops } from "@/lib/analytics/queries"
@@ -16,11 +17,12 @@ import { getShopTotals } from "@/lib/analytics/shop-totals"
 import { getWinBack } from "@/lib/analytics/win-back"
 import { createApiToken } from "@/lib/auth/api-tokens"
 import { getDatabase, type Database } from "@/lib/db/client"
-import { apps, connections, events } from "@/lib/db/schema"
+import { apps, connections, events, syncRuns } from "@/lib/db/schema"
 import { generateDemoEvents } from "@/lib/demo/generate"
 import { resetEnvCache } from "@/lib/env"
 import { RANGE_METRIC_IDS } from "@/lib/mcp/metrics"
 import { metricValue, percent, shopAlias } from "@/lib/mcp/output"
+import { TOOLS } from "@/lib/mcp/server"
 import type { ParsedEvent } from "@/lib/partner/parse"
 import { insertEvents } from "@/lib/partner/store"
 import { clearAll, hasDatabase, openTestDatabase, TEST_DATABASE_URL } from "../helpers/db"
@@ -35,14 +37,15 @@ const META = { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.mode
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Answer = any
 
-/** A tools/call as a client on the 2026-07-28 revision sends it. The result, which is an error when isError is set. */
-async function send(name: string, args: Record<string, unknown>, token: string): Promise<{ isError: boolean; text: string; answer: Answer }> {
+/** A tools/call as a client on the 2026-07-28 revision sends it. The result, which is an error when isError is set, and the whole response body as sent. */
+async function send(name: string, args: Record<string, unknown>, token: string): Promise<{ isError: boolean; text: string; answer: Answer; raw: string }> {
   const body = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args, _meta: META } }
   const headers = { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${token}`, "mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": name }
   const response = await POST(new Request("http://localhost/api/mcp", { method: "POST", headers, body: JSON.stringify(body) }))
   expect(response.status).toBe(200)
-  const { result } = await response.json()
-  return { isError: result.isError === true, text: result.content[0].text, answer: result.structuredContent }
+  const raw = await response.text()
+  const { result } = JSON.parse(raw)
+  return { isError: result.isError === true, text: result.content[0].text, answer: result.structuredContent, raw }
 }
 
 describe.skipIf(!hasDatabase)("MCP tools on demo data (Postgres)", () => {
@@ -495,23 +498,93 @@ describe.skipIf(!hasDatabase)("MCP tools on demo data (Postgres)", () => {
     })
   })
 
-  it("never shows a shop domain to a token that hides them, in any tool", async () => {
-    const s = (await listShops(database.db, ids, { plan: "trial", pageSize: 1 })).rows[0]
-    const range = { preset: "last_90_days" }
-    const answers = [
-      await call("get_metrics", range, hidden),
-      await call("get_timeseries", range, hidden),
-      await call("explain_mrr_change", range, hidden),
-      await call("get_churn", { ...range, comments_limit: 100, returns_limit: 50 }, hidden),
-      await call("get_trials", { ...range, limit: 100 }, hidden),
-      await call("get_retention", range, hidden),
-      await call("list_shops", { page_size: 100 }, hidden),
-      await call("get_shop_timeline", { app_id: s.appId, shop: alias(s.shop), max_events: 200 }, hidden),
-      await call("get_data_health", {}, hidden),
-      await call("get_at_risk", { limit: 100 }, hidden),
-    ]
-    for (const answer of answers) expect(JSON.stringify(answer)).not.toMatch(/myshopify\.com/)
-    expect(answers[3].data.comments.list.length).toBeGreaterThan(0)
-    expect(answers[4].data.open_trials.ending_soonest.map((t: Answer) => t.shop)).toContain(alias(s.shop))
+  it("never shows a shop domain to a token that hides them, in any field of any tool, errors and notes included", async () => {
+    // Every demo shop is demo-shop-<n>.myshopify.com, so two patterns find any of them in any text.
+    const domains = (await database.db.selectDistinct({ shop: events.shop }).from(events)).flatMap((r) => (r.shop ? [r.shop] : []))
+    expect(domains.length).toBeGreaterThan(100)
+    for (const domain of domains) expect(domain).toMatch(/^demo-shop-\d+\.myshopify\.com$/)
+
+    // Besides a shop field, a domain can come in a merchant's comment, in an error Shopify sent on a
+    // sync, or with an excluded shop. The latest uninstall gets a comment naming two shops.
+    const [c] = await database.db.select({ id: connections.id }).from(connections)
+    const [uninstall] = await database.db
+      .select({ id: events.id, appId: events.appId, shop: events.shop, text: events.reasonDescription })
+      .from(events)
+      .where(and(inArray(events.appId, ids), eq(events.type, "RELATIONSHIP_UNINSTALLED"), isNotNull(events.shop)))
+      .orderBy(desc(events.occurredAt))
+      .limit(1)
+    const left = uninstall.shop as string
+    const [paying, named, excluded] = (await listShops(database.db, ids, { plan: "paying", sort: "mrr", pageSize: 3 })).rows
+    const failure = `Partner API error: Shop ${paying.shop} could not be read.`
+    const comment = `Moving to ${named.shop}. Write to ${left.toUpperCase()}.`
+
+    let run: string | undefined
+    try {
+      await database.db.update(events).set({ reasonDescription: comment }).where(eq(events.id, uninstall.id))
+      await database.db.update(connections).set({ lastError: failure, earningsError: failure, legacyError: failure }).where(eq(connections.id, c.id))
+      run = (await database.db.insert(syncRuns).values({ connectionId: c.id, trigger: "schedule", finishedAt: new Date(), ok: false, error: failure }).returning({ id: syncRuns.id }))[0].id
+      await addExcludedShop(database.db, excluded.shop, null)
+      await rebuildStaleApps(database.db, new Date())
+
+      const asks: Record<string, Record<string, unknown>[]> = {
+        list_apps: [{}],
+        get_definitions: [{}, { id: "mrr" }],
+        get_metrics: [{ preset: "all_time", compare: "previous_period", metrics: RANGE_METRIC_IDS }],
+        get_timeseries: [{ preset: "last_90_days", granularity: "week", per_app: true }],
+        explain_mrr_change: [{ preset: "all_time", limit: 50 }],
+        get_churn: [{ preset: "all_time", compare: "previous_period", comments_limit: 100, returns_limit: 50 }],
+        get_trials: [{ preset: "all_time", compare: "previous_year", limit: 100 }],
+        get_retention: [{ preset: "all_time", cohort_by: "month" }],
+        list_shops: [
+          { page_size: 100 },
+          { plan: "paying", sort: "mrr", page_size: 100 },
+          { status: "uninstalled", sort: "revenue", page_size: 100 },
+          { shop: alias(left) },
+          { shop: "shop_0000000000" },
+          { shop: paying.shop },
+          { search: "demo" },
+          { sort: "shop" },
+        ],
+        get_shop_timeline: [
+          { app_id: uninstall.appId, shop: alias(left), max_events: 200 },
+          { app_id: excluded.appId, shop: alias(excluded.shop), max_events: 200 },
+          { app_id: paying.appId, shop: "shop_0000000000" },
+          { app_id: paying.appId, shop: paying.shop },
+        ],
+        get_data_health: [{}],
+        get_at_risk: [{ limit: 100 }],
+      }
+      // A tool added later has to be added here too.
+      expect(Object.keys(asks).sort()).toEqual(TOOLS.map((t) => t.name).sort())
+
+      const answers = new Map<string, Answer[]>()
+      for (const [name, list] of Object.entries(asks)) {
+        for (const args of list) {
+          const { isError, text, answer, raw } = await send(name, args, hidden)
+          expect(raw, `${name} ${JSON.stringify(args)}`).not.toMatch(/myshopify\.com|demo-shop-\d/i)
+          answers.set(name, [...(answers.get(name) ?? []), isError ? text : answer])
+        }
+      }
+
+      // Each way in was taken, and came out as aliases.
+      expect(answers.get("list_shops")![1].data.rows.map((r: Answer) => r.shop)).toEqual(expect.arrayContaining([alias(paying.shop), alias(named.shop)]))
+      const [churn] = answers.get("get_churn")!
+      expect(churn.data.comments.list.map((m: Answer) => m.merchant_text_untrusted)).toContain(`Moving to ${alias(named.shop)}. Write to ${alias(left)}.`)
+      const aliased = `Partner API error: Shop ${alias(paying.shop)} could not be read.`
+      const [health] = answers.get("get_data_health")!
+      expect(health.data.connections[0]).toMatchObject({ last_error: aliased, earnings_error: aliased, billing_events_error: aliased })
+      expect(health.data.connections[0].runs[0].error).toBe(aliased)
+      expect(answers.get("list_apps")![0].data.connections[0].last_error).toBe(aliased)
+      const [stay, out, unknown, domain] = answers.get("get_shop_timeline")!
+      expect(stay.data.stays.at(-1).merchant_text_untrusted).toBe(`Moving to ${alias(named.shop)}. Write to ${alias(left)}.`)
+      expect(out.data).toMatchObject({ shop: alias(excluded.shop), excluded: true, standing: null })
+      expect([unknown, domain]).toEqual(["No shop of this app matches shop_0000000000. list_shops gives the shops.", expect.stringContaining("Give the shop's alias")])
+    } finally {
+      await database.db.update(events).set({ reasonDescription: uninstall.text }).where(eq(events.id, uninstall.id))
+      await database.db.update(connections).set({ lastError: null, earningsError: null, legacyError: null }).where(eq(connections.id, c.id))
+      if (run) await database.db.delete(syncRuns).where(eq(syncRuns.id, run))
+      await removeExcludedShop(database.db, excluded.shop)
+      await rebuildStaleApps(database.db, new Date())
+    }
   })
 })

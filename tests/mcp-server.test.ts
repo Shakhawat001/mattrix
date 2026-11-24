@@ -17,9 +17,13 @@ vi.mock("@/lib/mcp/tools", async () => {
     shopsTool: defineTool({
       name: "test_shops",
       title: "Shops",
-      description: "Answers with a shop and a merchant's comment.",
+      description: "Answers with a shop, a merchant's comment, a sync error and a note that name shops.",
       input,
-      run: async () => envelope({ rows: [{ shop: "acme.myshopify.com", merchant_text_untrusted: "We closed acme.myshopify.com." }] }),
+      run: async () =>
+        envelope(
+          { rows: [{ shop: "acme.myshopify.com", merchant_text_untrusted: "We closed acme.myshopify.com." }], last_error: "Shop beta.myshopify.com could not be read." },
+          { notes: ["Read Beta.MyShopify.com again."] }
+        ),
     }),
     refusingTool: defineTool({
       name: "test_refuses",
@@ -28,6 +32,15 @@ vi.mock("@/lib/mcp/tools", async () => {
       input,
       run: async () => {
         throw new ToolError("Unknown app id: x. list_apps gives the ids.")
+      },
+    }),
+    refusingShopTool: defineTool({
+      name: "test_refuses_shop",
+      title: "Refuses a shop",
+      description: "Refuses with a message that names a shop.",
+      input,
+      run: async () => {
+        throw new ToolError("acme.myshopify.com has no stays.")
       },
     }),
     brokenTool: defineTool({
@@ -62,21 +75,29 @@ afterEach(() => {
 describe("the MCP server", () => {
   it("marks every tool read-only, idempotent and closed to the outside world", async () => {
     const { tools } = await send("tools/list", {})
-    expect(tools.map((t: { name: string }) => t.name)).toEqual(["test_breaks", "test_refuses", "test_shops"])
+    expect(tools.map((t: { name: string }) => t.name)).toEqual(["test_breaks", "test_refuses", "test_refuses_shop", "test_shops"])
     for (const tool of tools) expect(tool.annotations).toEqual({ readOnlyHint: true, idempotentHint: true, openWorldHint: false })
   })
 
   it("shows shop domains to a token that does not hide them", async () => {
     const result = await send("tools/call", { name: "test_shops", arguments: {} })
-    expect(result.structuredContent.data.rows[0]).toEqual({ shop: "acme.myshopify.com", merchant_text_untrusted: "We closed acme.myshopify.com." })
+    expect(result.structuredContent.data).toEqual({ rows: [{ shop: "acme.myshopify.com", merchant_text_untrusted: "We closed acme.myshopify.com." }], last_error: "Shop beta.myshopify.com could not be read." })
+    expect(result.structuredContent.notes).toEqual(["Read Beta.MyShopify.com again."])
+    expect((await send("tools/call", { name: "test_refuses_shop", arguments: {} })).content[0].text).toBe("acme.myshopify.com has no stays.")
   })
 
-  it("replaces every shop domain with its alias for a token that hides them, in the text and in the structured answer", async () => {
+  it("replaces every shop domain with its alias for a token that hides them, in any field, in the text and in the structured answer", async () => {
     const result = await send("tools/call", { name: "test_shops", arguments: {} }, true)
-    const alias = shopAlias(SECRET, "acme.myshopify.com")
-    expect(result.structuredContent.data.rows[0]).toEqual({ shop: alias, merchant_text_untrusted: `We closed ${alias}.` })
+    const [acme, beta] = [shopAlias(SECRET, "acme.myshopify.com"), shopAlias(SECRET, "beta.myshopify.com")]
+    expect(result.structuredContent.data).toEqual({ rows: [{ shop: acme, merchant_text_untrusted: `We closed ${acme}.` }], last_error: `Shop ${beta} could not be read.` })
+    expect(result.structuredContent.notes).toEqual([`Read ${beta} again.`])
     expect(JSON.parse(result.content[0].text)).toEqual(result.structuredContent)
-    expect(JSON.stringify(result)).not.toContain("acme")
+    expect(JSON.stringify(result)).not.toMatch(/acme|beta/i)
+  })
+
+  it("replaces shop domains in a tool's error too, for a token that hides them", async () => {
+    const result = await send("tools/call", { name: "test_refuses_shop", arguments: {} }, true)
+    expect(result).toMatchObject({ isError: true, content: [{ type: "text", text: `${shopAlias(SECRET, "acme.myshopify.com")} has no stays.` }] })
   })
 
   it("gives the agent a ToolError's message, and only a generic one for anything else", async () => {

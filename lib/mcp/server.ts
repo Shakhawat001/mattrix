@@ -51,7 +51,8 @@ function registerTool(server: McpServer, tool: McpTool, ctx: McpContext): void {
       const answer = await tool.run(ctx, input)
       return toolResult(ctx.hideShops ? hideShopDomains(answer, ctx.aliasOf) : answer)
     } catch (error) {
-      return toolError(tool.name, error)
+      const failure = toolError(tool.name, error)
+      return ctx.hideShops ? hideShopDomains(failure, ctx.aliasOf) : failure
     }
   })
 }
