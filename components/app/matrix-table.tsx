@@ -90,10 +90,10 @@ export function MatrixTable({ rows, total, columns, title, description }: { rows
   }
 
   return (
-    <Card size="sm">
+    <Card>
       <CardHeader>
-        <CardTitle className="text-sm">{title}</CardTitle>
-        {description ? <CardDescription className="text-xs">{description}</CardDescription> : null}
+        <CardTitle>{title}</CardTitle>
+        {description ? <CardDescription>{description}</CardDescription> : null}
       </CardHeader>
       <CardContent className="overflow-x-auto px-0">
         <table className="w-full text-sm">

@@ -60,7 +60,7 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
         <ParamSelect name="type" value={type ?? "any"} options={typeOptions} label="Event type" className="min-w-44" />
       </div>
 
-      <Card size="sm">
+      <Card>
         <CardContent className="px-0">
           <Table>
             <TableHeader>

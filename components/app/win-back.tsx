@@ -16,10 +16,10 @@ export function WinBackCard({ data }: { data: WinBack }) {
   ]
 
   return (
-    <Card size="sm">
+    <Card>
       <CardHeader>
-        <CardTitle className="text-sm">Win-back</CardTitle>
-        <CardDescription className="text-xs">
+        <CardTitle>Win-back</CardTitle>
+        <CardDescription>
           {data.left === 0
             ? "No shop uninstalled in this range."
             : `${formatInt(data.left)} ${data.left === 1 ? "shop" : "shops"} uninstalled in this range. Their returns are counted up to today.`}
@@ -31,7 +31,7 @@ export function WinBackCard({ data }: { data: WinBack }) {
             const def = COHORT_METRICS[id]
             return (
               <div key={id}>
-                <dt className="flex items-center gap-1.5 text-xs tracking-wider text-muted-foreground uppercase">
+                <dt className="flex items-center gap-1.5 text-sm text-muted-foreground">
                   {def.label}
                   <MetricHint text={def.description} label={`What ${def.label} means`} />
                 </dt>
@@ -45,7 +45,7 @@ export function WinBackCard({ data }: { data: WinBack }) {
           <p className="text-sm text-muted-foreground">None of them has come back yet.</p>
         ) : (
           <div className="flex flex-col gap-2">
-            <p className="text-xs tracking-wider text-muted-foreground uppercase">
+            <p className="text-sm text-muted-foreground">
               {data.returned > data.recent.length ? `The latest ${formatInt(data.recent.length)} of ${formatInt(data.returned)} returns` : "Returns, latest first"}
             </p>
             <ul className="flex flex-col divide-y">

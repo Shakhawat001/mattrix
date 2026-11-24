@@ -10,10 +10,10 @@ export function PlanMix({ rows, date }: { rows: PlanMixRow[]; date: string }) {
   const subscribers = rows.reduce((sum, r) => sum + r.subscribers, 0)
 
   return (
-    <Card size="sm">
+    <Card>
       <CardHeader>
-        <CardTitle className="text-sm">Plans</CardTitle>
-        <CardDescription className="text-xs">Paying subscribers at the end of {formatDate(date)}. A yearly plan counts at a twelfth of its price.</CardDescription>
+        <CardTitle>Plans</CardTitle>
+        <CardDescription>Paying subscribers at the end of {formatDate(date)}. A yearly plan counts at a twelfth of its price.</CardDescription>
       </CardHeader>
       <CardContent className="px-0">
         {rows.length === 0 ? (

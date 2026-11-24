@@ -59,7 +59,7 @@ export default async function ShopsPage({ params, searchParams }: { params: Prom
         <ParamSelect name="sort" value={sort} options={SORT} label="Sort by" />
       </div>
 
-      <Card size="sm">
+      <Card>
         <CardContent className="px-0">
           <Table>
             <TableHeader>

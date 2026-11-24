@@ -54,10 +54,10 @@ export default async function AppOverviewPage({ params, searchParams }: { params
 
       <div className="grid gap-4 lg:grid-cols-2">
         <PlanMix rows={plans} date={p.range.to} />
-        <Card size="sm">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-sm">Why shops uninstalled</CardTitle>
-            <CardDescription className="text-xs">
+            <CardTitle>Why shops uninstalled</CardTitle>
+            <CardDescription>
               The top reasons in this range.{" "}
               <Link href={`/apps/${appId}/churn${carry}`} className="font-medium text-foreground underline underline-offset-4">
                 See all and read the comments

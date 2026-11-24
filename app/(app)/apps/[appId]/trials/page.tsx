@@ -33,10 +33,10 @@ export default async function TrialsPage({ params, searchParams }: { params: Pro
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard title="Trials over time" description="Trials started, converted to a paid charge, and canceled before one. Each is counted on the day it happened." data={totals(rows, p.range, gran, TRIAL_FLOW, "int")} kind="line" granularity={gran} />
 
-        <Card size="sm">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-sm">Where the trials that started in this range ended up</CardTitle>
-            <CardDescription className="text-xs">
+            <CardTitle>Where the trials that started in this range ended up</CardTitle>
+            <CardDescription>
               {formatInt(trials.started)} trials started. {trials.medianDaysToConvert === null ? "None has converted yet." : `Half of the converters paid within ${formatDays(trials.medianDaysToConvert)}.`}
             </CardDescription>
           </CardHeader>

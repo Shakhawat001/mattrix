@@ -61,13 +61,13 @@ export function Annotations({ annotations, apps, dates }: { annotations: Annotat
 
   return (
     <section aria-labelledby="annotations" className="flex flex-col gap-4">
-      <h2 id="annotations" className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+      <h2 id="annotations" className="font-heading text-base font-medium">
         Annotations
       </h2>
-      <Card size="sm">
+      <Card>
         <CardHeader>
-          <CardTitle className="text-sm">Mark a day</CardTitle>
-          <CardDescription className="text-xs">A short label on a day, for one app or for all of them: a price change, a release, an App Store feature, an ad campaign. Days are UTC, like every date here.</CardDescription>
+          <CardTitle>Mark a day</CardTitle>
+          <CardDescription>A short label on a day, for one app or for all of them: a price change, a release, an App Store feature, an ad campaign. Days are UTC, like every date here.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
           <form action={action} className="flex flex-col gap-5">

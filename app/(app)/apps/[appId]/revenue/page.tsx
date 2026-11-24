@@ -43,7 +43,7 @@ export default async function RevenuePage({ params, searchParams }: { params: Pr
       <StatGrid ids={["mrr", "arr", "arpu", "ltv"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} />
       <StatGrid ids={["netNewMrr", "nrr", "grr", "revenueChurnRate"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} />
       <StatGrid ids={["charged", "grossEarned", "fees", "netEarned"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} />
-      <StatGrid ids={["feeRate", "refunded", "credits"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} columns="xl:grid-cols-3" />
+      <StatGrid ids={["feeRate", "refunded", "credits"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} columns={3} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard title="MRR" description="Monthly recurring revenue at the end of each period." data={single(rows, p.range, gran, { key: "mrr", label: "MRR", color: slotColor(0), read: readers.mrr }, "money", comparison)} kind="area" granularity={gran} />

@@ -39,10 +39,10 @@ export default async function ChurnPage({ params, searchParams }: { params: Prom
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard title="Uninstalls" description="Shops that removed the app in each period." data={totals(rows, p.range, gran, [{ key: "uninstalls", label: "Uninstalls", color: slotColor(0), read: readers.uninstalls }], "int")} kind="stack" granularity={gran} />
 
-        <Card size="sm">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-sm">Reasons given</CardTitle>
-            <CardDescription className="text-xs">From the survey Shopify shows a merchant when they uninstall. A shop can give more than one reason, and many give none.</CardDescription>
+            <CardTitle>Reasons given</CardTitle>
+            <CardDescription>From the survey Shopify shows a merchant when they uninstall. A shop can give more than one reason, and many give none.</CardDescription>
           </CardHeader>
           <CardContent>
             <BarList rows={reasons.slice(0, 10).map((r) => ({ label: reasonLabel(r.reason), value: r.count }))} empty="No uninstalls in this range." />
@@ -50,10 +50,10 @@ export default async function ChurnPage({ params, searchParams }: { params: Prom
         </Card>
       </div>
 
-      <Card size="sm">
+      <Card>
         <CardHeader>
-          <CardTitle className="text-sm">In their own words</CardTitle>
-          <CardDescription className="text-xs">The most recent comments merchants left when they uninstalled, newest first.</CardDescription>
+          <CardTitle>In their own words</CardTitle>
+          <CardDescription>The most recent comments merchants left when they uninstalled, newest first.</CardDescription>
         </CardHeader>
         <CardContent>
           {comments.length === 0 ? (

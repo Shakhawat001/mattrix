@@ -34,10 +34,10 @@ export function AtRiskCard({ data, apps = [], carry }: { data: AtRisk; apps?: { 
     }))
 
   return (
-    <Card size="sm">
+    <Card>
       <CardHeader>
-        <CardTitle className="text-sm">At risk</CardTitle>
-        <CardDescription className="text-xs">What may be lost soon or may come back, as of now, whatever the date range. Each shop links to its timeline.</CardDescription>
+        <CardTitle>At risk</CardTitle>
+        <CardDescription>What may be lost soon or may come back, as of now, whatever the date range. Each shop links to its timeline.</CardDescription>
       </CardHeader>
       <CardContent>
         {setToEnd.count + trialsEnding.count + frozen.count === 0 ? (
@@ -107,7 +107,7 @@ function Part({
   const def = AT_RISK_METRICS[id]
   return (
     <div className="flex min-w-0 flex-col">
-      <dt className="flex items-center gap-1.5 text-xs tracking-wider text-muted-foreground uppercase">
+      <dt className="flex items-center gap-1.5 text-sm text-muted-foreground">
         {def.label}
         <MetricHint text={def.description} label={`What ${def.label} means`} />
       </dt>

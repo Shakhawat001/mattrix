@@ -34,14 +34,14 @@ export async function ApiTokensSection() {
 
   return (
     <section aria-labelledby="api-tokens" className="flex flex-col gap-4">
-      <h2 id="api-tokens" className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+      <h2 id="api-tokens" className="font-heading text-base font-medium">
         API tokens
       </h2>
       <NewTokenProvider>
-        <Card size="sm">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-sm">Tokens for AI agents</CardTitle>
-            <CardDescription className="text-xs">
+            <CardTitle>Tokens for AI agents</CardTitle>
+            <CardDescription>
               For AI agents that read these numbers. A token is shown once, when you create it, and only a hash of it is stored. Changing SESSION_SECRET ends every token. {active} of{" "}
               {MAX_ACTIVE_API_TOKENS} active.
             </CardDescription>

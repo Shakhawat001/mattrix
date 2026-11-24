@@ -65,10 +65,10 @@ export function ConnectAi({ endpoint }: { endpoint: string | null }) {
   const target = connectTarget(endpoint, created?.token ?? null)
 
   return (
-    <Card size="sm">
+    <Card>
       <CardHeader>
-        <CardTitle className="text-sm">Connect an AI</CardTitle>
-        <CardDescription className="text-xs">
+        <CardTitle>Connect an AI</CardTitle>
+        <CardDescription>
           {created
             ? `The steps below have the token for ${created.name} filled in. Copy what you need before you click Done: the token is not shown again.`
             : `Let Claude, Cursor or another AI app read these numbers. Create a token above first, and the steps here have it filled in. Or put a token you saved in place of ${TOKEN_PLACEHOLDER}.`}

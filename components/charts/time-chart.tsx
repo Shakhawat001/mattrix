@@ -1,17 +1,16 @@
 "use client"
 
-import type { Key } from "react"
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from "recharts"
+import { useId, type Key } from "react"
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, ReferenceLine, Tooltip, XAxis, YAxis } from "recharts"
 import { ChartContainer } from "@/components/ui/chart"
 import { bucketLabel, type Granularity } from "@/lib/analytics/range"
 import { bucketTitle, type ChartData, type Datum } from "@/lib/analytics/view"
 import { formatAxis, formatValue } from "@/lib/format"
-import type { SeriesDef } from "@/lib/analytics/series"
 
 export type ChartKind =
-  /** Several measures over time, one line each (stocks such as MRR or active installs). */
+  /** Several measures over time, one line each with a light wash under it (stocks such as MRR or active installs). */
   | "line"
-  /** One measure over time with a faint wash under it. */
+  /** One measure over time with a deeper wash under it. */
   | "area"
   /** Flows that add up to a whole, stacked above the zero line. */
   | "stack"
@@ -95,16 +94,16 @@ function SeriesTooltip({
   else if (kind === "diverge") rows.splice(0, rows.length, ...rows.filter((r) => r.value >= 0).reverse(), ...rows.filter((r) => r.value < 0))
 
   return (
-    <div className="min-w-44 bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md ring-1 ring-foreground/10">
-      <p className="mb-1.5 font-medium text-muted-foreground">{bucketTitle(String(label), granularity)}</p>
-      <ul className="flex flex-col gap-1">
+    <div className="grid min-w-44 gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
+      <p className="font-medium">{bucketTitle(String(label), granularity)}</p>
+      <ul className="grid gap-1.5">
         {rows.map((row) => (
           <li key={row.key} className="flex items-center justify-between gap-6">
             <span className="flex items-center gap-2 text-muted-foreground">
-              <span className="h-0.5 w-3 shrink-0" style={{ background: row.color }} aria-hidden />
+              <span className={row.key === COMPARE_KEY ? "h-0.5 w-2.5 shrink-0" : "size-2.5 shrink-0 rounded-[2px]"} style={{ background: row.color }} aria-hidden />
               {row.label}
             </span>
-            <span className="font-semibold text-foreground tabular-nums">{formatValue(row.value, data.format)}</span>
+            <span className="font-medium text-foreground tabular-nums">{formatValue(row.value, data.format)}</span>
           </li>
         ))}
       </ul>
@@ -113,17 +112,19 @@ function SeriesTooltip({
 }
 
 export function TimeChart({ data, kind, granularity, height = 256 }: { data: ChartData; kind: ChartKind; granularity: Granularity; height?: number }) {
+  // Gradient ids must be unique on the page, and React's ids hold characters a url(#...) reference cannot.
+  const gradient = `fill${useId().replace(/[^a-zA-Z0-9]/g, "")}`
   const points: Datum[] = data.compare ? data.points.map((p, i) => ({ ...p, [COMPARE_KEY]: data.compare!.values[i] ?? (null as unknown as number) })) : data.points
   const last = points.length - 1
   const order = data.series.map((s) => s.key)
 
   const axes = (
     <>
-      <CartesianGrid vertical={false} stroke={GRID} />
+      <CartesianGrid vertical={false} />
       <XAxis
         dataKey="bucket"
         tickLine={false}
-        axisLine={{ stroke: GRID }}
+        axisLine={false}
         tickMargin={8}
         minTickGap={32}
         tickFormatter={(bucket: string) => bucketLabel(bucket, granularity)}
@@ -138,34 +139,34 @@ export function TimeChart({ data, kind, granularity, height = 256 }: { data: Cha
   )
 
   const compareLine = data.compare ? (
-    <Line dataKey={COMPARE_KEY} type="linear" stroke="var(--muted-foreground)" strokeWidth={1.5} dot={false} activeDot={false} isAnimationActive={false} connectNulls />
+    <Line dataKey={COMPARE_KEY} type="monotone" stroke="var(--muted-foreground)" strokeWidth={1.5} dot={false} activeDot={false} isAnimationActive={false} connectNulls />
   ) : null
 
   const margin = { top: 8, right: 12, bottom: 0, left: 0 }
-  const lineFor = (s: SeriesDef) => (
-    <Line key={s.key} dataKey={s.key} type="linear" stroke={s.color} strokeWidth={2} dot={endDot(s.color, last)} activeDot={{ r: 4, fill: s.color, stroke: SURFACE, strokeWidth: 2 }} isAnimationActive={false} />
-  )
+  // One measure gets a deep wash. Several overlap, so theirs is light enough to read every line through.
+  const [washTop, washBottom] = kind === "area" ? [0.5, 0.05] : [0.2, 0.02]
 
   return (
     <ChartContainer config={{}} className="aspect-auto w-full" style={{ height }}>
-      {kind === "line" ? (
-        <LineChart data={points} margin={margin}>
-          {axes}
-          {data.series.map(lineFor)}
-          {compareLine}
-        </LineChart>
-      ) : kind === "area" ? (
+      {kind === "line" || kind === "area" ? (
         <AreaChart data={points} margin={margin}>
+          <defs>
+            {data.series.map((s, i) => (
+              <linearGradient key={s.key} id={`${gradient}-${i}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={s.color} stopOpacity={washTop} />
+                <stop offset="95%" stopColor={s.color} stopOpacity={washBottom} />
+              </linearGradient>
+            ))}
+          </defs>
           {axes}
-          {data.series.map((s) => (
+          {data.series.map((s, i) => (
             <Area
               key={s.key}
               dataKey={s.key}
-              type="linear"
+              type="monotone"
               stroke={s.color}
               strokeWidth={2}
-              fill={s.color}
-              fillOpacity={0.1}
+              fill={`url(#${gradient}-${i})`}
               dot={endDot(s.color, last)}
               activeDot={{ r: 4, fill: s.color, stroke: SURFACE, strokeWidth: 2 }}
               isAnimationActive={false}

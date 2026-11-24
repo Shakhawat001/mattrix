@@ -43,10 +43,10 @@ export default async function RetentionPage({ params, searchParams }: { params: 
         <ChartCard title="Subscribers" description="Shops on a paid plan at the end of each period." data={single(rows, p.range, gran, { key: "subs", label: "Subscribers", color: slotColor(0), read: readers.activeSubs }, "int", comparison)} kind="area" granularity={gran} />
       </div>
 
-      <Card size="sm">
+      <Card>
         <CardHeader>
-          <CardTitle className="text-sm">Install cohorts</CardTitle>
-          <CardDescription className="text-xs">
+          <CardTitle>Install cohorts</CardTitle>
+          <CardDescription>
             Each row is the shops that installed in that {unit}. Each cell is the share still installed at the end of {unit} 0, 1, 2 and on. Only installs made in the date range are included.
           </CardDescription>
         </CardHeader>
@@ -55,10 +55,10 @@ export default async function RetentionPage({ params, searchParams }: { params: 
         </CardContent>
       </Card>
 
-      <Card size="sm">
+      <Card>
         <CardHeader>
-          <CardTitle className="text-sm">Revenue cohorts</CardTitle>
-          <CardDescription className="text-xs">
+          <CardTitle>Revenue cohorts</CardTitle>
+          <CardDescription>
             Each row is the shops that first started paying in that month, a trial counting from its conversion. Each cell is the MRR they still pay at the end of month 0, 1, 2 and on, over what they paid when they started. Upgrades count, so a cell can pass 100%. Only shops that first paid in the date range are included, so a longer range shows more cohorts.
           </CardDescription>
         </CardHeader>

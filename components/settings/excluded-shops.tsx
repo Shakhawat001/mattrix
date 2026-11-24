@@ -39,13 +39,13 @@ export function ExcludedShops({ shops }: { shops: ExcludedShopItem[] }) {
 
   return (
     <section aria-labelledby="excluded-shops" className="flex flex-col gap-4">
-      <h2 id="excluded-shops" className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+      <h2 id="excluded-shops" className="font-heading text-base font-medium">
         Excluded shops
       </h2>
-      <Card size="sm">
+      <Card>
         <CardHeader>
-          <CardTitle className="text-sm">Left out of every number</CardTitle>
-          <CardDescription className="text-xs">
+          <CardTitle>Left out of every number</CardTitle>
+          <CardDescription>
             For your own development stores, test installs and Shopify&apos;s review stores. An excluded shop counts in no number of any app. Its events stay stored and still show in the event log, so removing it from this list brings it back. The numbers are recomputed within a minute of a change.
           </CardDescription>
         </CardHeader>

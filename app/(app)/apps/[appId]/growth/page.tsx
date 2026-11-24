@@ -43,17 +43,17 @@ export default async function GrowthPage({ params, searchParams }: { params: Pro
       />
 
       <StatGrid ids={["activeInstalls", "installs", "uninstalls", "netInstalls"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} />
-      <StatGrid ids={["reinstalls", "uninstallRate"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} columns="xl:grid-cols-2" />
+      <StatGrid ids={["reinstalls", "uninstallRate"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} columns={2} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard title="Installs and uninstalls" description="Uninstalls are drawn below zero." data={totals(rows, p.range, gran, INSTALLS_AND_UNINSTALLS, "int")} kind="diverge" granularity={gran} />
         <ChartCard title="Active installs" description="Shops that have the app installed." data={single(rows, p.range, gran, { key: "active", label: "Active installs", color: slotColor(0), read: readers.activeInstalls }, "int", comparison)} kind="area" granularity={gran} />
         <ChartCard title="Net installs" description="Installs minus uninstalls in each period." data={totals(rows, p.range, gran, [{ key: "net", label: "Net installs", color: slotColor(0), read: readers.netInstalls }], "int")} kind="diverge" granularity={gran} />
 
-        <Card size="sm">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-sm">How long installs last</CardTitle>
-            <CardDescription className="text-xs">
+            <CardTitle>How long installs last</CardTitle>
+            <CardDescription>
               {formatInt(life.ended)} shops uninstalled in this range; {formatInt(life.open)} are still installed.
             </CardDescription>
           </CardHeader>
@@ -65,7 +65,7 @@ export default async function GrowthPage({ params, searchParams }: { params: Pro
                 ["Gone in a week", life.ended > 0 ? formatPercent(life.within7Days / life.ended, 0) : "n/a"],
               ].map(([label, value]) => (
                 <div key={label}>
-                  <dt className="text-xs tracking-wider text-muted-foreground uppercase">{label}</dt>
+                  <dt className="text-sm text-muted-foreground">{label}</dt>
                   <dd className="mt-1 font-heading text-xl font-semibold">{value}</dd>
                 </div>
               ))}

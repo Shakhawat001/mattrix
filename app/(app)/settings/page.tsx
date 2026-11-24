@@ -37,7 +37,7 @@ function statusOf(c: ConnectionOverview, now: Date): { text: string; tone: Tone 
 
 const Detail = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <div>
-    <dt className="text-xs tracking-wider text-muted-foreground uppercase">{label}</dt>
+    <dt className="text-sm text-muted-foreground">{label}</dt>
     <dd className="mt-0.5 text-sm">{children}</dd>
   </div>
 )
@@ -68,10 +68,10 @@ export default async function SettingsPage() {
         {connections.map((c) => {
           const status = statusOf(c, now)
           return (
-            <Card key={c.id} size="sm">
+            <Card key={c.id}>
               <CardHeader>
-                <CardTitle className="text-sm">{c.label}</CardTitle>
-                <CardDescription className="flex items-center gap-2 text-xs">
+                <CardTitle>{c.label}</CardTitle>
+                <CardDescription className="flex items-center gap-2">
                   <span className="size-2 shrink-0 rounded-full" style={{ background: DOT[status.tone] }} aria-hidden />
                   {status.text}
                 </CardDescription>
@@ -145,10 +145,10 @@ export default async function SettingsPage() {
           )
         })}
 
-        <Card size="sm">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-sm">Add a connection</CardTitle>
-            <CardDescription className="text-xs">
+            <CardTitle>Add a connection</CardTitle>
+            <CardDescription>
               One Shopify Partner API token reads every app in your Partner organization. Create the token in your Partner organization settings with permission to view apps only, then paste it here. The steps are in docs/SELF_HOSTING.md. This dashboard only ever reads.
             </CardDescription>
           </CardHeader>
@@ -162,7 +162,7 @@ export default async function SettingsPage() {
         <h2 id="apps" className="font-heading text-base font-medium">
           Apps
         </h2>
-        <Card size="sm">
+        <Card>
           <CardContent className="divide-y">
             {apps.length === 0 ? (
               <p className="py-2 text-sm text-muted-foreground">Apps appear here after the first sync.</p>
@@ -192,7 +192,7 @@ export default async function SettingsPage() {
         <h2 id="system" className="font-heading text-base font-medium">
           System
         </h2>
-        <Card size="sm">
+        <Card>
           <CardContent className="flex flex-col gap-5">
             <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
               <Detail label="Signed in now">{formatInt(sessions)} {sessions === 1 ? "browser" : "browsers"}</Detail>

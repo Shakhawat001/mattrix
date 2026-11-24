@@ -45,12 +45,12 @@ export function ShopFacts({ standing, totals }: { standing: ShopStanding; totals
   ]
 
   return (
-    <Card size="sm">
+    <Card>
       <CardContent>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
           {facts.map((f) => (
             <div key={f.label} className="min-w-0">
-              <dt className="text-xs tracking-wider text-muted-foreground uppercase">{f.label}</dt>
+              <dt className="text-sm text-muted-foreground">{f.label}</dt>
               <dd className="mt-1 truncate font-heading text-xl font-semibold" title={f.value}>
                 {f.value}
               </dd>
@@ -68,10 +68,10 @@ const TONE = { loss: "destructive", money: "secondary", plain: "default" } as co
 /** The story, one row per event or trial step, oldest first. */
 export function TimelineCard({ rows, shown, total }: { rows: TimelineRow[]; shown: number; total: number }) {
   return (
-    <Card size="sm">
+    <Card>
       <CardHeader>
-        <CardTitle className="text-sm">Timeline</CardTitle>
-        <CardDescription className="text-xs">
+        <CardTitle>Timeline</CardTitle>
+        <CardDescription>
           Oldest first, every time in UTC. Each row is an event Shopify reported, except the start and end of a free trial, which are worked out from them.
           {total > shown ? ` Showing the latest ${formatInt(shown)} of ${formatInt(total)} events; the tables below still cover the whole history.` : ""}
         </CardDescription>
@@ -100,10 +100,10 @@ export function TimelineCard({ rows, shown, total }: { rows: TimelineRow[]; show
 
 function TableCard({ title, description, empty, children }: { title: string; description: string; empty: string | null; children: ReactNode }) {
   return (
-    <Card size="sm">
+    <Card>
       <CardHeader>
-        <CardTitle className="text-sm">{title}</CardTitle>
-        <CardDescription className="text-xs">{description}</CardDescription>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="px-0">{empty ? <p className="px-(--card-spacing) py-2 text-sm text-muted-foreground">{empty}</p> : children}</CardContent>
     </Card>

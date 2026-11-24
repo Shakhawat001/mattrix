@@ -31,13 +31,12 @@ export function ChartCard({ title, description, data, kind, granularity, height 
   const [view, setView] = useState<"chart" | "table">("chart")
   const empty = data.points.length === 0 || data.series.every((s) => data.points.every((p) => Number(p[s.key]) === 0))
   const legend = data.series.length > 1 || Boolean(data.compare)
-  const lineKeys = kind === "line" || kind === "area"
 
   return (
-    <Card size="sm" className={className}>
+    <Card className={cn("@container/card", className)}>
       <CardHeader>
-        <CardTitle className="text-sm">{title}</CardTitle>
-        {description ? <CardDescription className="text-xs">{description}</CardDescription> : null}
+        <CardTitle>{title}</CardTitle>
+        {description ? <CardDescription>{description}</CardDescription> : null}
         {empty ? null : (
           <CardAction>
             <ToggleGroup variant="outline" size="sm" spacing={0} value={[view]} onValueChange={(v) => v[0] && setView(v[0] as "chart" | "table")} aria-label="View">
@@ -51,7 +50,7 @@ export function ChartCard({ title, description, data, kind, granularity, height 
           </CardAction>
         )}
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">
+      <CardContent className="flex flex-col gap-3 px-2 sm:px-6">
         {empty ? (
           <p className="flex items-center justify-center text-sm text-muted-foreground" style={{ height: height / 2 }}>
             Nothing to show for this range.
@@ -59,15 +58,15 @@ export function ChartCard({ title, description, data, kind, granularity, height 
         ) : (
           <>
             {legend ? (
-              <ul className="flex flex-wrap gap-x-4 gap-y-1" aria-label="Legend">
+              <ul className="flex flex-wrap gap-x-4 gap-y-1 px-4 sm:px-0" aria-label="Legend">
                 {data.series.map((s) => (
-                  <li key={s.key} className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className={cn("shrink-0", lineKeys ? "h-0.5 w-3" : "size-2.5")} style={{ background: s.color }} aria-hidden />
+                  <li key={s.key} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className="size-2.5 shrink-0 rounded-[2px]" style={{ background: s.color }} aria-hidden />
                     {s.label}
                   </li>
                 ))}
                 {data.compare ? (
-                  <li className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <li className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <span className="h-0.5 w-3 shrink-0 bg-muted-foreground" aria-hidden />
                     {data.compare.label}
                   </li>
@@ -80,9 +79,9 @@ export function ChartCard({ title, description, data, kind, granularity, height 
                 <TimeChart data={data} kind={kind} granularity={granularity} height={height} />
               </div>
             ) : (
-              <div className="overflow-auto" style={{ maxHeight: height + 32 }}>
+              <div className="overflow-auto rounded-lg border *:data-[slot=table-container]:overflow-visible" style={{ maxHeight: height + 32 }}>
                 <Table>
-                  <TableHeader className="sticky top-0 bg-card">
+                  <TableHeader className="sticky top-0 z-10 bg-muted">
                     <TableRow>
                       <TableHead>{BUCKET_NAME[granularity]}</TableHead>
                       {data.series.map((s) => (
