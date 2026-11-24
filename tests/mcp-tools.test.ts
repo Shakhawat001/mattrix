@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { kpis, noRetention, FLOW_KEYS, STOCK_KEYS, type Flows, type Stocks } from "@/lib/analytics/aggregate"
-import { COHORT_METRICS, METRICS } from "@/lib/analytics/metrics-registry"
-import { changeOf, cohortMetricAnswer, metricAnswer, RANGE_METRIC_IDS, READS_RETENTION } from "@/lib/mcp/metrics"
+import { AT_RISK_METRICS, COHORT_METRICS, METRICS } from "@/lib/analytics/metrics-registry"
+import { atRiskMetricAnswer, changeOf, cohortMetricAnswer, metricAnswer, RANGE_METRIC_IDS, READS_RETENTION } from "@/lib/mcp/metrics"
 import { billing, reasonLabels } from "@/lib/mcp/output"
 import { bucketRanges } from "@/lib/mcp/tools/get-timeseries"
 
@@ -85,6 +85,18 @@ describe("a metric's answer", () => {
       definition: COHORT_METRICS.winBackRate.description,
     })
     expect(cohortMetricAnswer("daysToReturn", null).value).toBeNull()
+  })
+
+  it("writes the numbers read for now, which have no comparison either", () => {
+    expect(atRiskMetricAnswer("mrrSetToEnd", 3000)).toEqual({
+      id: "mrrSetToEnd",
+      label: "MRR set to end",
+      unit: "US dollars",
+      value: { cents: 3000, formatted: "$30" },
+      better_when: "lower",
+      definition: AT_RISK_METRICS.mrrSetToEnd.description,
+    })
+    expect(atRiskMetricAnswer("trialsEndingSoon", 4).value).toEqual({ count: 4, formatted: "4" })
   })
 })
 

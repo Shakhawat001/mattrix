@@ -1,25 +1,27 @@
 import { randomBytes } from "node:crypto"
-import { eq } from "drizzle-orm"
+import { eq, inArray } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { POST } from "@/app/api/mcp/route"
 import { addRetention, bucketSeries, cohortRetention, kpisFor, seriesByApp } from "@/lib/analytics/aggregate"
+import { getAtRisk } from "@/lib/analytics/at-risk"
 import { getDataHealth } from "@/lib/analytics/data-health"
-import { METRICS, type MetricId } from "@/lib/analytics/metrics-registry"
+import { AT_RISK_METRICS, METRICS, type MetricId } from "@/lib/analytics/metrics-registry"
 import { getMrrMovers } from "@/lib/analytics/mrr-movers"
 import { getDayRows, getExplanations, getLifetimeStats, getReasons, getRetention, getStays, getTrialStats, listApps, listShops } from "@/lib/analytics/queries"
 import { addDays, previousRange, todayUtc, type Range } from "@/lib/analytics/range"
-import { rebuildStaleApps } from "@/lib/analytics/rebuild"
+import { rebuildApp, rebuildStaleApps } from "@/lib/analytics/rebuild"
 import { getRevenueCohorts } from "@/lib/analytics/revenue-cohorts"
 import { getShopTimeline } from "@/lib/analytics/shop-timeline"
 import { getShopTotals } from "@/lib/analytics/shop-totals"
 import { getWinBack } from "@/lib/analytics/win-back"
 import { createApiToken } from "@/lib/auth/api-tokens"
 import { getDatabase, type Database } from "@/lib/db/client"
-import { apps, connections } from "@/lib/db/schema"
+import { apps, connections, events } from "@/lib/db/schema"
 import { generateDemoEvents } from "@/lib/demo/generate"
 import { resetEnvCache } from "@/lib/env"
 import { RANGE_METRIC_IDS } from "@/lib/mcp/metrics"
 import { metricValue, percent, shopAlias } from "@/lib/mcp/output"
+import type { ParsedEvent } from "@/lib/partner/parse"
 import { insertEvents } from "@/lib/partner/store"
 import { clearAll, hasDatabase, openTestDatabase, TEST_DATABASE_URL } from "../helpers/db"
 
@@ -426,6 +428,73 @@ describe.skipIf(!hasDatabase)("MCP tools on demo data (Postgres)", () => {
     })
   })
 
+  describe("get_at_risk", () => {
+    // Demo data has no cancel that takes effect later, so the two highest paying shops get one, 10
+    // and 20 days ahead, for these tests only.
+    const added: ParsedEvent[] = []
+
+    beforeAll(async () => {
+      const [c] = await database.db.select({ id: connections.id }).from(connections)
+      const gidOf = new Map((await listApps(database.db)).map((a) => [a.id, a.gid]))
+      const paying = (await listShops(database.db, ids, { plan: "paying", sort: "mrr", pageSize: 2 })).rows
+      const now = Date.now()
+      paying.forEach((s, i) => {
+        const day = new Date(now + (i + 1) * 10 * DAY).toISOString().slice(0, 10)
+        added.push({
+          id: `at-risk-test-${i}`, occurredAt: new Date(now - 60_000), type: "SUBSCRIPTION_CANCELLATION_SCHEDULED", appGid: gidOf.get(s.appId) as string, appName: null, appApiKey: null,
+          shop: s.shop, shopGid: null, state: null, reason: null, reasonDescription: null, planHandle: null, billingPeriod: null, trialDays: null, trialDaysRemaining: null,
+          cancelEffectiveOn: new Date(`${day}T00:00:00Z`), amountCents: null, currency: null, grossCents: null, netCents: null, feeCents: null, chargeId: null, payload: {},
+        })
+      })
+      await insertEvents(database.db, c.id, added)
+      await rebuildStaleApps(database.db, new Date())
+    })
+
+    afterAll(async () => {
+      await database.db.delete(events).where(inArray(events.id, added.map((e) => e.id)))
+      for (const id of ids) await rebuildApp(database.db, id, new Date())
+    })
+
+    it("returns the at-risk card's three lists, equal to the dashboard's read at the same moment", async () => {
+      const answer = await call("get_at_risk", { limit: 1 })
+      const risk = await getAtRisk(database.db, ids, new Date(answer.data.as_of), 1)
+      expect(answer.range).toBeUndefined()
+      expect(answer.data.apps.map((a: Answer) => a.id).sort()).toEqual([...ids].sort())
+
+      const set = answer.data.set_to_end
+      expect(set.subscriptions.count).toBe(2)
+      expect(set.metric).toMatchObject({ id: "mrrSetToEnd", value: { cents: risk.setToEnd.mrrCents }, definition: AT_RISK_METRICS.mrrSetToEnd.description })
+      expect(set.ending_soonest.map((r: Answer) => [r.app_id, r.shop, r.monthly_price.cents, r.cancel_effective_on])).toEqual(
+        risk.setToEnd.rows.map((r) => [r.appId, r.shop, r.monthlyCents, r.endsAt.toISOString().slice(0, 10)])
+      )
+      expect(set.ending_soonest[0].cancel_effective_on).toBe(added[0].cancelEffectiveOn!.toISOString().slice(0, 10))
+
+      const trials = answer.data.trials_ending_soon
+      expect(risk.trialsEnding.count).toBeGreaterThan(0)
+      expect(trials.metric.value.count).toBe(risk.trialsEnding.count)
+      expect(trials.mrr_if_all_convert.cents).toBe(risk.trialsEnding.mrrCents)
+      expect(trials.ending_soonest.map((r: Answer) => [r.shop, r.ends_at])).toEqual(risk.trialsEnding.rows.map((r) => [r.shop, r.endsAt.toISOString()]))
+
+      expect(answer.data.frozen.metric.value.cents).toBe(risk.frozen.mrrCents)
+      expect(answer.data.frozen.subscriptions.count).toBe(risk.frozen.count)
+      expect(answer.data.frozen.latest.map((r: Answer) => [r.shop, r.frozen_at])).toEqual(risk.frozen.rows.map((r) => [r.shop, r.frozenAt.toISOString()]))
+      expect(answer.notes).toContain("Each list holds at most 1 shop, and its count covers them all. Ask for up to 100 with limit.")
+    })
+
+    it("gives aliases to a token that hides shop domains, and reads one app when asked", async () => {
+      const answer = await call("get_at_risk", { limit: 100 }, hidden)
+      const risk = await getAtRisk(database.db, ids, new Date(answer.data.as_of), 100)
+      expect(answer.data.set_to_end.ending_soonest.map((r: Answer) => r.shop)).toEqual(risk.setToEnd.rows.map((r) => alias(r.shop)))
+      expect(answer.data.trials_ending_soon.ending_soonest.map((r: Answer) => r.shop)).toEqual(risk.trialsEnding.rows.map((r) => alias(r.shop)))
+      expect(JSON.stringify(answer)).not.toContain("myshopify.com")
+
+      const appId = risk.setToEnd.rows[0].appId
+      const one = await call("get_at_risk", { app_ids: [appId] })
+      expect(one.data.set_to_end.subscriptions.count).toBe((await getAtRisk(database.db, [appId], new Date(one.data.as_of))).setToEnd.count)
+      expect(await refusal("get_at_risk", { limit: 101 })).toContain("Input validation error")
+    })
+  })
+
   it("never shows a shop domain to a token that hides them, in any tool", async () => {
     const s = (await listShops(database.db, ids, { plan: "trial", pageSize: 1 })).rows[0]
     const range = { preset: "last_90_days" }
@@ -439,6 +508,7 @@ describe.skipIf(!hasDatabase)("MCP tools on demo data (Postgres)", () => {
       await call("list_shops", { page_size: 100 }, hidden),
       await call("get_shop_timeline", { app_id: s.appId, shop: alias(s.shop), max_events: 200 }, hidden),
       await call("get_data_health", {}, hidden),
+      await call("get_at_risk", { limit: 100 }, hidden),
     ]
     for (const answer of answers) expect(JSON.stringify(answer)).not.toMatch(/myshopify\.com/)
     expect(answers[3].data.comments.list.length).toBeGreaterThan(0)

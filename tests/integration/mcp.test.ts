@@ -22,7 +22,7 @@ const SECRET = "mcp-test-session-secret-0123456789-abcdefghij"
 const DAY = 86_400_000
 const META = { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {} }
 const plain: NewApiToken = { name: "Claude Code", expiresInDays: null, hideShops: false }
-const TOOL_NAMES = ["explain_mrr_change", "get_churn", "get_data_health", "get_definitions", "get_metrics", "get_retention", "get_shop_timeline", "get_timeseries", "get_trials", "list_apps", "list_shops"]
+const TOOL_NAMES = ["explain_mrr_change", "get_at_risk", "get_churn", "get_data_health", "get_definitions", "get_metrics", "get_retention", "get_shop_timeline", "get_timeseries", "get_trials", "list_apps", "list_shops"]
 
 type Options = { token?: string; legacy?: boolean; headers?: Record<string, string>; url?: string }
 

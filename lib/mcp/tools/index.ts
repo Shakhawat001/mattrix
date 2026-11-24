@@ -2,6 +2,7 @@
 // lib/mcp/tool.ts) and one line here; lib/mcp/server.ts registers them all.
 
 export { explainMrrChangeTool } from "./explain-mrr-change"
+export { getAtRiskTool } from "./get-at-risk"
 export { getChurnTool } from "./get-churn"
 export { getDataHealthTool } from "./get-data-health"
 export { getDefinitionsTool } from "./get-definitions"

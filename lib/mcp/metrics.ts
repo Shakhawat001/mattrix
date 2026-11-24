@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { addRetention, FLOW_KEYS, kpis, kpisFor, STOCK_KEYS, type DayRow, type Flows, type Kpis, type Retention, type Stocks } from "@/lib/analytics/aggregate"
 import { BETTER, UNIT } from "@/lib/analytics/metrics-doc"
-import { COHORT_METRICS, METRICS, type CohortMetricId, type MetricDef, type MetricId } from "@/lib/analytics/metrics-registry"
+import { AT_RISK_METRICS, COHORT_METRICS, METRICS, type AtRiskMetricId, type CohortMetricId, type MetricDef, type MetricId } from "@/lib/analytics/metrics-registry"
 import { getDayRows, getRetention } from "@/lib/analytics/queries"
 import type { Range } from "@/lib/analytics/range"
 import type { Queryable } from "@/lib/db/client"
@@ -125,4 +125,9 @@ export function metricAnswer(id: MetricId, current: Kpis, compared: Kpis | null)
 /** One of the numbers that follow a group of shops up to today (COHORT_METRICS). They have no comparison. */
 export function cohortMetricAnswer(id: CohortMetricId, value: number | null): MetricAnswer {
   return answer(id, COHORT_METRICS[id], value)
+}
+
+/** One of the numbers read for now, whatever the range (AT_RISK_METRICS). They have no comparison. */
+export function atRiskMetricAnswer(id: AtRiskMetricId, value: number): MetricAnswer {
+  return answer(id, AT_RISK_METRICS[id], value)
 }

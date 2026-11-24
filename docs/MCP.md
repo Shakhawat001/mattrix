@@ -127,9 +127,10 @@ curl https://<your host>/api/mcp \
 | `get_retention` | Revenue retention and churn rates with the starting group behind them, install cohorts and revenue cohorts. |
 | `list_shops` | Every shop with its status, plan, MRR and all it was charged, filtered, sorted and paged, at most 100 a page. |
 | `get_shop_timeline` | One shop in one app: where it stands, its totals, every stay, subscription period and trial, and its latest events. |
+| `get_at_risk` | The overview's at-risk lists, read for now: paying subscriptions set to end and when, trials ending in the next 7 days, and frozen subscriptions that may come back, each with its MRR. |
 | `get_data_health` | How complete the data is: events by type and month, signs of gaps, each connection's syncs, and how many apps are hidden. |
 
-The resource `appmetrics://definitions` holds the same definitions as markdown. Still to come: `list_events`, and `get_at_risk` and `list_annotations` once those features land (see [ROADMAP.md](ROADMAP.md), section 2.3).
+The resource `appmetrics://definitions` holds the same definitions as markdown. Still to come: `list_events`, and `list_annotations` once that feature lands (see [ROADMAP.md](ROADMAP.md), section 2.3).
 
 Tools with a range take a `preset` (such as `last_30_days`, the default) or `from` and `to` (UTC days, both included), and `app_ids` (default: every app that is not hidden, together). Their numbers equal the dashboard's for the same apps and range. Lists are capped, and each tool's description says where.
 
