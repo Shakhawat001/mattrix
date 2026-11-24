@@ -120,13 +120,20 @@ What we build next, in order. Written 24 November 2026. Tick an item in the same
 - [ ] Jobs on a Postgres queue (pg-boss), an encryption key per customer, billing through a Merchant of Record, staging, monitoring, tested backups, legal pages, guided onboarding.
 - [ ] The final name, before any of this goes public. "AppMetrics" is close to Yandex's AppMetrica.
 
-## How the work runs
+## Status, 24 November 2026
 
-Three streams in parallel, each in its own git worktree, each pushing finished features to `main`:
+Shipped and live: 1.1 to 1.4, 1.7, 1.8, part 1 of 1.6 (the billing screen events are read and stored) and of 1.9 (annotations are stored and managed in Settings), the data health read, and Phase 2 (API tokens, the MCP endpoint with 12 tools and 3 prompts, the "Connect an AI" guide in Settings) except the `list_annotations` and `list_events` tools. A review the same day fixed four problems (unknown MCP arguments, shop domains in error text, batched MCP requests and the rate limit, a scheduled cancel landing on the plan that replaced it).
 
-- **Agents:** 2.1, 2.2, 2.3, 2.4.
-- **Numbers:** 1.1 to 1.6 (they change `derive()`, the sync and the rollup, so they run in order).
-- **Views:** 1.8 and 1.9 first, then 1.7 and 1.10 on top of the reads from 2.1.
+Next, in this order:
+
+1. 1.6 part 2: charges declined and expired, and the approval rate, from the stored billing screen events.
+2. 1.9 part 2: annotations on the time charts, and a `list_annotations` MCP tool.
+3. 1.10: the data health page (the read and the MCP tool exist).
+4. 1.5: charges by kind, tiered prices and usage fields.
+5. `list_events` MCP tool.
+6. Small fixes: the API token table at narrow widths, KPI labels that wrap at 1440 to 1600px, friendlier labels for billing screen events on the shop timeline, the store-inactive cause kept per subscription so lists can name it.
+
+Checked on the live data: the billing screen pass reads (declined and expired charges arrive), and Shopify does send store deactivations, reactivations and freezes, so churn by cause has data behind it.
 
 ## Not planned
 
