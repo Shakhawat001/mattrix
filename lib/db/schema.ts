@@ -50,10 +50,14 @@ export const connections = pgTable("connections", {
   syncRequestedAt: tz("sync_requested_at"),
   coreWatermark: tz("core_watermark"),
   earningsWatermark: tz("earnings_watermark"),
+  /** How far the billing screen events of the older App.events have been read. */
+  legacyWatermark: tz("legacy_watermark"),
   lastRunAt: tz("last_run_at"),
   lastOkAt: tz("last_ok_at"),
   lastError: text("last_error"),
   earningsError: text("earnings_error"),
+  /** Why the billing screen events could not be read. Everything else still syncs. */
+  legacyError: text("legacy_error"),
   createdAt: tz("created_at").notNull().defaultNow(),
 })
 

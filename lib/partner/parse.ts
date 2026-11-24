@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto"
+import { LEGACY_EVENT_TYPES } from "./query"
+
 // One Partner API event node -> one row. Anything that is not a usable event becomes
 // null, so a single odd node cannot stop a sync.
 
@@ -81,6 +84,53 @@ export function parseEventNode(node: any): ParsedEvent | null {
     netCents: cents(node.netAmount?.amount),
     feeCents: cents(node.shopifyFee?.amount),
     chargeId: text(node.chargeId ?? node.earningChargeId, 100),
+    payload: node as Record<string, unknown>,
+  }
+}
+
+const LEGACY_TYPES: ReadonlySet<string> = new Set(LEGACY_EVENT_TYPES)
+
+/**
+ * One node of the older App.events -> one row, filed under the app it was read for. These
+ * events have no id, so the id is made from what tells one apart: its type, time, shop and
+ * charge. Reading it again gives the same id, so it is stored once. A type that was not
+ * asked for is skipped: an install read here would be counted twice.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseLegacyEventNode(node: any, appGid: string): ParsedEvent | null {
+  if (!node || typeof node.type !== "string" || !LEGACY_TYPES.has(node.type)) return null
+  const occurredAt = new Date(node.occurredAt)
+  if (Number.isNaN(occurredAt.getTime())) return null
+
+  // Shopify types this domain as a Url, so a scheme is dropped should one ever come.
+  const shop = text(node.shop?.myshopifyDomain, 255)?.toLowerCase().replace(/^https?:\/\//, "").replace(/\/+$/, "") || null
+  const charge = node.charge ?? null
+  const chargeId = text(charge?.id, 100)
+  const key = [node.type, occurredAt.toISOString(), shop ?? "", chargeId ?? ""].join("|")
+
+  return {
+    id: `legacy:${createHash("sha256").update(key).digest("hex")}`,
+    occurredAt,
+    type: node.type,
+    appGid,
+    appName: null,
+    appApiKey: null,
+    shop,
+    shopGid: text(node.shop?.id, 100),
+    state: null,
+    reason: null,
+    reasonDescription: null,
+    planHandle: null,
+    billingPeriod: null,
+    trialDays: null,
+    trialDaysRemaining: null,
+    cancelEffectiveOn: null,
+    amountCents: cents(charge?.amount?.amount),
+    currency: text(charge?.amount?.currencyCode, 8),
+    grossCents: null,
+    netCents: null,
+    feeCents: null,
+    chargeId,
     payload: node as Record<string, unknown>,
   }
 }

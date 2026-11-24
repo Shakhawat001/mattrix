@@ -531,23 +531,41 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
     })
     const response = (nodes: unknown[]) =>
       new Response(JSON.stringify({ data: { events: { pageInfo: { hasNextPage: false, endCursor: null }, edges: nodes.map((n) => ({ cursor: "c", node: n })) } } }))
-
-    it("stores the events, moves the watermarks, and does nothing the second time", async () => {
-      let call = 0
+    const billingNode = (type: string, occurredAt: string, shop: string, charge: Record<string, unknown>) => ({
+      type,
+      occurredAt,
+      shop: { id: "gid://partners/Shop/1", myshopifyDomain: shop },
+      charge,
+    })
+    /** Answers like Shopify: `core` to the core query, nothing to earnings, `billing` to the older App.events. */
+    function shopify(core: unknown[], billing: unknown[] = []) {
+      const appIds: string[] = []
       const client = createPartnerClient({
         partnerId: "42",
         token: "tok",
         sleep: async () => {},
-        fetch: async () => response(++call % 2 === 1 ? [node("e1", "RELATIONSHIP_INSTALLED", "2026-01-05T10:00:00Z", "a.myshopify.com"), node("e2", "RELATIONSHIP_UNINSTALLED", "2026-01-06T10:00:00Z", "a.myshopify.com")] : []),
+        fetch: async (_url, init) => {
+          const { query, variables } = JSON.parse(String(init.body))
+          if (!query.includes("AppMetricsLegacyEvents")) return response(variables.filter.eventTypes.includes("RELATIONSHIP_INSTALLED") ? core : [])
+          appIds.push(variables.appId)
+          return new Response(JSON.stringify({ data: { app: { events: { pageInfo: { hasNextPage: false }, edges: billing.map((n, i) => ({ cursor: `c${i}`, node: n })) } } } }))
+        },
       })
+      return { client, appIds }
+    }
+    const connection = async () => (await database.db.select().from(connections).where(eq(connections.id, connectionId)))[0]
+
+    it("stores the events, moves the watermarks, and does nothing the second time", async () => {
+      const { client } = shopify([node("e1", "RELATIONSHIP_INSTALLED", "2026-01-05T10:00:00Z", "a.myshopify.com"), node("e2", "RELATIONSHIP_UNINSTALLED", "2026-01-06T10:00:00Z", "a.myshopify.com")])
       const store = createDbSyncStore(database.db, connectionId)
       const options = { client, store, backfillFrom: new Date("2026-01-01T00:00:00Z"), now: NOW }
 
       const first = await syncConnection(options)
-      expect(first).toMatchObject({ ok: true, inserted: 2, appsSeen: 1 })
-      const [c] = await database.db.select().from(connections).where(eq(connections.id, connectionId))
+      expect(first).toMatchObject({ ok: true, inserted: 2, appsSeen: 1, earningsError: null, legacyError: null })
+      const c = await connection()
       expect(c.coreWatermark?.toISOString()).toBe(NOW.toISOString())
       expect(c.earningsWatermark?.toISOString()).toBe(NOW.toISOString())
+      expect(c.legacyWatermark?.toISOString()).toBe(NOW.toISOString())
 
       const second = await syncConnection(options)
       expect(second.inserted).toBe(0)
@@ -557,6 +575,42 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
       const [stay] = await database.db.select().from(installs)
       expect(stay.shop).toBe("a.myshopify.com")
       expect(stay.uninstalledAt).not.toBeNull()
+    })
+
+    it("stores the billing screen events once, under the app the core pass found, and derives nothing from them", async () => {
+      const { client, appIds } = shopify(
+        [node("e1", "RELATIONSHIP_INSTALLED", "2026-01-05T10:00:00Z", "a.myshopify.com")],
+        [
+          // A shop that installed before the history starts, declining before anything else in it.
+          billingNode("SUBSCRIPTION_CHARGE_DECLINED", "2026-01-03T08:00:00Z", "B.myshopify.com", { id: "gid://shopify/AppSubscription/7", name: "Pro", test: false, amount: { amount: "19.99", currencyCode: "USD" } }),
+          billingNode("ONE_TIME_CHARGE_ACCEPTED", "2026-01-06T10:00:00Z", "a.myshopify.com", { id: "gid://shopify/AppPurchaseOneTime/8", name: "Setup", test: true, amount: { amount: "50.00", currencyCode: "USD" } }),
+        ],
+      )
+      const options = { client, store: createDbSyncStore(database.db, connectionId), backfillFrom: new Date("2026-01-01T00:00:00Z"), now: NOW }
+
+      expect(await syncConnection(options)).toMatchObject({ ok: true, inserted: 3, legacyError: null })
+      expect(appIds).toEqual(["gid://partners/App/1"])
+      const [app] = await database.db.select().from(apps)
+      expect(app.gid).toBe(APP_GID)
+      expect((await connection()).legacyWatermark?.toISOString()).toBe(NOW.toISOString())
+
+      const billing = (await database.db.select().from(events).orderBy(events.occurredAt)).filter((e) => e.id.startsWith("legacy:"))
+      expect(billing).toHaveLength(2)
+      expect(billing.every((e) => e.appId === app.id)).toBe(true)
+      expect(billing[0]).toMatchObject({ type: "SUBSCRIPTION_CHARGE_DECLINED", shop: "b.myshopify.com", amountCents: 1999, currency: "USD", chargeId: "gid://shopify/AppSubscription/7" })
+      expect(billing[1]).toMatchObject({ type: "ONE_TIME_CHARGE_ACCEPTED", shop: "a.myshopify.com", amountCents: 5000, chargeId: "gid://shopify/AppPurchaseOneTime/8" })
+      expect(billing[1].payload).toMatchObject({ charge: { name: "Setup", test: true } })
+
+      // Read again: the same ids, nothing new.
+      expect((await syncConnection(options)).inserted).toBe(0)
+      expect(await database.db.select().from(events)).toHaveLength(3)
+
+      // The numbers start at the install, as if the billing screen events were not there.
+      await rebuildStaleApps(database.db, NOW)
+      expect(await database.db.select().from(installs)).toHaveLength(1)
+      const days = await database.db.select().from(dailyMetrics).orderBy(dailyMetrics.date)
+      expect(days[0].date).toBe("2026-01-05")
+      expect(days.reduce((sum, d) => sum + d.chargedCents, 0)).toBe(0)
     })
 
     it("lists a connection with its apps, events and recent runs", async () => {

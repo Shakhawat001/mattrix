@@ -1,4 +1,4 @@
-import { EVENT } from "@/lib/partner/query"
+import { EVENT, LEGACY_EVENT_TYPES } from "@/lib/partner/query"
 
 // Turns one app's raw events into the facts the dashboard is built on. Pure: events
 // and a clock in, rows out, no database. tests/derive.test.ts pins every definition.
@@ -32,11 +32,13 @@ import { EVENT } from "@/lib/partner/query"
  * the worker rebuilds any app built with an older one, so a deploy that changes a rule recomputes
  * all of history. Bump it with every change to what derive() returns.
  */
-export const DERIVE_VERSION = 3
+export const DERIVE_VERSION = 4
 
 const DAY_MS = 86_400_000
 /** A cancel and a new subscription this close together are one plan change, not a loss and a new sale. */
 const REPLACE_WINDOW_MS = 10 * 60_000
+/** What merchants did on the billing screen (the older App.events). Counted on their own, never replayed here. */
+const BILLING_SCREEN_TYPES: ReadonlySet<string> = new Set(LEGACY_EVENT_TYPES)
 
 export type RawEvent = {
   type: string
@@ -201,6 +203,7 @@ export function derive(events: RawEvent[], now: Date): Derived {
   // By time, then by event type (RANK), then in the order given: rebuildApp reads events by time
   // and then by id, so two events of the same rank at the same instant are always read alike.
   const sorted = events
+    .filter((e) => !BILLING_SCREEN_TYPES.has(e.type))
     .map((e, index) => ({ e, index }))
     .sort((a, b) => a.e.occurredAt.getTime() - b.e.occurredAt.getTime() || rankOf(a.e.type) - rankOf(b.e.type) || a.index - b.index)
     .map(({ e }) => e)

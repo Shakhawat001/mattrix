@@ -1,4 +1,4 @@
-import { eq, inArray, sql } from "drizzle-orm"
+import { asc, eq, inArray, sql } from "drizzle-orm"
 import type { Db } from "@/lib/db/client"
 import { apps, connections, events } from "@/lib/db/schema"
 import type { ParsedEvent } from "./parse"
@@ -11,18 +11,22 @@ export function createDbSyncStore(db: Db, connectionId: string): SyncStore {
   return {
     async watermarks() {
       const [row] = await db
-        .select({ core: connections.coreWatermark, earnings: connections.earningsWatermark })
+        .select({ core: connections.coreWatermark, earnings: connections.earningsWatermark, legacy: connections.legacyWatermark })
         .from(connections)
         .where(eq(connections.id, connectionId))
-      return { core: row?.core ?? null, earnings: row?.earnings ?? null }
+      return { core: row?.core ?? null, earnings: row?.earnings ?? null, legacy: row?.legacy ?? null }
     },
     async setWatermark(pass, at) {
       await db
         .update(connections)
-        .set(pass === "core" ? { coreWatermark: at } : { earningsWatermark: at })
+        .set(pass === "core" ? { coreWatermark: at } : pass === "earnings" ? { earningsWatermark: at } : { legacyWatermark: at })
         .where(eq(connections.id, connectionId))
     },
     insertEvents: (list) => insertEvents(db, connectionId, list),
+    async appGids() {
+      const rows = await db.select({ gid: apps.gid }).from(apps).where(eq(apps.connectionId, connectionId)).orderBy(asc(apps.gid))
+      return rows.map((r) => r.gid)
+    },
   }
 }
 

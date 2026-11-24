@@ -43,6 +43,13 @@
       "when": 1795492141430,
       "tag": "0005_annotations",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795492680444,
+      "tag": "0006_legacy_events",
+      "breakpoints": true
     }
   ]
 }

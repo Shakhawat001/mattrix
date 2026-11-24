@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { DERIVE_VERSION, derive, monthlyCents, type DailyRow, type RawEvent } from "@/lib/analytics/derive"
+import { LEGACY_EVENT_TYPES } from "@/lib/partner/query"
 
 const at = (iso: string) => new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso)
 
@@ -729,5 +730,38 @@ describe("edge cases", () => {
     const r = derive([ev("CHARGE_RECURRING", "2026-01-01", null, { amountCents: 500 })], NOW)
     expect(r.daily[0].chargedCents).toBe(500)
     expect(r.installs).toHaveLength(0)
+  })
+})
+
+describe("billing screen events from the older App.events", () => {
+  // They share the SUBSCRIPTION_ prefix with the events derive() reads, and carry a price.
+  const billing = [
+    // Before the first event of the history, from a shop seen nowhere else.
+    ev("SUBSCRIPTION_CHARGE_DECLINED", "2025-12-30", "z.myshopify.com", { amountCents: 2000 }),
+    // On the same instant as A's subscription, and on the day its trial converts.
+    ev("SUBSCRIPTION_CHARGE_ACCEPTED", "2026-01-01T11:00:00Z", "a.myshopify.com", { amountCents: 2000 }),
+    ev("ONE_TIME_CHARGE_ACCEPTED", "2026-01-08T11:00:00Z", "a.myshopify.com", { amountCents: 500 }),
+    // B never paid; C has no plan at all.
+    ev("SUBSCRIPTION_CHARGE_EXPIRED", "2026-01-03", "b.myshopify.com", { amountCents: 24000 }),
+    ev("ONE_TIME_CHARGE_DECLINED", "2026-01-12", "c.myshopify.com", { amountCents: 500 }),
+    ev("ONE_TIME_CHARGE_EXPIRED", "2026-01-13", "c.myshopify.com", { amountCents: 500 }),
+    // E's plan while it is frozen, and after.
+    ev("SUBSCRIPTION_APPROACHING_CAPPED_AMOUNT", "2026-01-15T18:00:00Z", "e.myshopify.com", { amountCents: 1000 }),
+    ev("SUBSCRIPTION_CAPPED_AMOUNT_UPDATED", "2026-01-20", "e.myshopify.com", { amountCents: 5000 }),
+    ev("SUBSCRIPTION_CHARGE_DECLINED", "2026-02-09", null),
+  ]
+
+  it("covers every type the legacy pass reads", () => {
+    expect(new Set(billing.map((e) => e.type))).toEqual(new Set(LEGACY_EVENT_TYPES))
+  })
+
+  it("changes nothing derive() returns", () => {
+    const mixed = [billing[0], ...history.slice(0, 5), ...billing.slice(1, 5), ...history.slice(5), ...billing.slice(5)]
+    expect(mixed).toHaveLength(history.length + billing.length)
+    expect(derive(mixed, NOW)).toEqual(result)
+  })
+
+  it("gives an app with nothing else no rows at all", () => {
+    expect(derive(billing, NOW)).toEqual(derive([], NOW))
   })
 })

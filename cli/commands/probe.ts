@@ -1,6 +1,6 @@
 import { createPartnerClient, describeError, PartnerApiError } from "@/lib/partner/client"
-import { parseEventNode } from "@/lib/partner/parse"
-import { CORE_EVENT_TYPES, EARNING_EVENT_TYPES, EVENTS_QUERY } from "@/lib/partner/query"
+import { parseEventNode, parseLegacyEventNode } from "@/lib/partner/parse"
+import { CORE_EVENT_TYPES, EARNING_EVENT_TYPES, EVENTS_QUERY, LEGACY_EVENT_TYPES, LEGACY_EVENTS_QUERY, partnersAppId } from "@/lib/partner/query"
 
 // Tries a Partner API token against the live API, read-only, and says what it can see.
 // Run it before adding the connection, or when a sync fails and you want to know why.
@@ -12,6 +12,7 @@ import { CORE_EVENT_TYPES, EARNING_EVENT_TYPES, EVENTS_QUERY } from "@/lib/partn
 
 type Edge = { node?: unknown }
 type Response = { events?: { edges?: Edge[]; pageInfo?: { hasNextPage?: boolean; endCursor?: string | null } } }
+type LegacyResponse = { app?: { events?: { edges?: { cursor?: unknown; node?: unknown }[]; pageInfo?: { hasNextPage?: boolean } } } | null }
 
 function explain(err: unknown): string {
   const status = err instanceof PartnerApiError ? err.status : undefined
@@ -77,6 +78,41 @@ export async function probeCommand(args: string[]): Promise<number> {
     return { total, byType, apps, uninstalls, withReason, withWords, subscriptions, withPrice }
   }
 
+  /** The billing screen events of the older App.events, one app at a time. */
+  async function readLegacy(appGids: string[]) {
+    const byType: Record<string, number> = {}
+    let total = 0
+    let tests = 0
+    const min = new Date(Date.now() - days * 86_400_000).toISOString()
+    const max = new Date().toISOString()
+
+    for (const gid of appGids) {
+      let cursor: string | null = null
+      let pages = 0
+      do {
+        const data: LegacyResponse = await client.query<LegacyResponse>(LEGACY_EVENTS_QUERY, {
+          appId: partnersAppId(gid),
+          types: LEGACY_EVENT_TYPES,
+          occurredAtMin: min,
+          occurredAtMax: max,
+          cursor,
+        })
+        if (!data?.app) throw new PartnerApiError(`Partner API found no app ${partnersAppId(gid)}`)
+        const edges = data.app.events?.edges ?? []
+        for (const edge of edges) {
+          const e = parseLegacyEventNode(edge.node, gid)
+          if (!e) continue
+          total++
+          byType[e.type] = (byType[e.type] ?? 0) + 1
+          if ((e.payload.charge as { test?: unknown } | null | undefined)?.test === true) tests++
+        }
+        const last = edges.at(-1)?.cursor
+        cursor = data.app.events?.pageInfo?.hasNextPage && typeof last === "string" ? last : null
+      } while (cursor && ++pages < 40)
+    }
+    return { total, tests, byType }
+  }
+
   let core
   try {
     core = await read(CORE_EVENT_TYPES)
@@ -99,6 +135,19 @@ export async function probeCommand(args: string[]): Promise<number> {
   } catch (err) {
     console.log(`\nEarnings: not readable with this token (${explain(err)})`)
     console.log("  Everything else works without them; only the payout numbers stay empty.")
+  }
+
+  if (core.apps.size === 0) {
+    console.log("\nBilling screen events: no app in this window to read them for.")
+  } else {
+    try {
+      const legacy = await readLegacy([...core.apps.keys()])
+      console.log(`\nBilling screen events (the older App.events): ${legacy.total} events, ${legacy.tests} of them for test charges`)
+      for (const [type, n] of Object.entries(legacy.byType).sort()) console.log(`  ${String(n).padStart(5)}  ${type}`)
+    } catch (err) {
+      console.log(`\nBilling screen events: could not be read (${explain(err)})`)
+      console.log("  Everything else works without them; only charges declined and expired stay unknown.")
+    }
   }
   console.log("\nDone. Nothing was written anywhere.")
   return 0

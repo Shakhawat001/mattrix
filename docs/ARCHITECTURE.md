@@ -23,7 +23,7 @@ Web and worker are the same image with a different command (`docker/entrypoint.s
 
 Everything can be rebuilt from the first layer.
 
-1. **Raw `events`.** What the Partner API sent, stored once by Shopify's own event id, with the payload kept as sent so a field added later needs no new sync.
+1. **Raw `events`.** What the Partner API sent, stored once by Shopify's own event id (or, for the billing screen events that have none, an id made from their content), with the payload kept as sent so a field added later needs no new sync.
 2. **Derived `installs`, `subscriptions`, `trials`.** One row per stay of a shop (install to uninstall), per period on one plan at one price, and per free trial. They are rebuilt for an app from its events by one pure function, `derive()` in `lib/analytics/derive.ts`. It takes events and a date and returns rows, so it is tested without a database. Each app records the `DERIVE_VERSION` it was built with, and the worker rebuilds any app built with an older one, so a deploy that changes a rule recomputes all of history.
 3. **Rollup `daily_metrics`.** One row per app per UTC day. Flows (installs, new MRR, charges) are what happened that day and add up over any range. Stocks (active installs, subscribers, MRR) are the value at the end of the day and are read at a date, never added.
 
@@ -35,7 +35,9 @@ Three reads serve the pages and AI agents alike. Each takes a database handle or
 
 `lib/partner/sync.ts` reads events in windows of at most 300 days, oldest first, with a three-day overlap so nothing at a window's edge is missed. Duplicates are harmless because events are stored by id. The watermark (where to resume) moves only after a window has been stored completely, so a crash in the middle repeats work and never skips it.
 
-There are two passes. The core pass reads installs, subscriptions and charges. A separate earnings pass reads Shopify's earnings events, so a token that cannot read earnings still gives you everything else, and the connection says so.
+There are three passes, each with its own watermark. The core pass reads installs, subscriptions and charges. A separate earnings pass reads Shopify's earnings events, so a token that cannot read earnings still gives you everything else, and the connection says so.
+
+The third pass reads the billing screen: charges accepted, declined and left to expire, and usage cap events. The newer events API never reports a declined or expired charge, so this pass reads Shopify's older `App.events`, one app at a time: each app the core pass has found, only the chosen ones when the connection names apps. Its failure is recorded on the connection and fails neither the run nor the other passes. These events have no id of their own, so each is stored as `legacy:` plus a SHA-256 of its type, time, shop and charge, and reading one again stores nothing. They keep Shopify's type names, and the whole node (with the charge's test flag) is the payload. `derive()` leaves them out, so they change none of the numbers built from the other events.
 
 Requests are spaced to stay under Shopify's rate limit and retried on rate limits, server errors and network failures. Errors are cleaned of the token before they are stored or logged.
 
