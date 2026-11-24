@@ -26,13 +26,17 @@ import { EVENT, LEGACY_EVENT_TYPES } from "@/lib/partner/query"
 //     store's billing account deactivated (closed, paused or unpaid: a deactivation since its latest
 //     install, with no reactivation since), is the store going inactive. Anything else is the
 //     merchant leaving.
+//   - Shopify cancels an app's subscriptions when the app is uninstalled, so a creation or an update
+//     between a shop's uninstall and its next install (Shopify can send one late) is counted and
+//     otherwise ignored. A shop with no install or uninstall seen yet installed before the history
+//     starts, so its subscription events count as usual.
 
 /**
  * The version of these rules. Each app stores the version its derived tables were built with, and
  * the worker rebuilds any app built with an older one, so a deploy that changes a rule recomputes
  * all of history. Bump it with every change to what derive() returns.
  */
-export const DERIVE_VERSION = 4
+export const DERIVE_VERSION = 5
 
 const DAY_MS = 86_400_000
 /** A cancel and a new subscription this close together are one plan change, not a loss and a new sale. */
@@ -138,6 +142,8 @@ export type Derived = {
   daily: DailyRow[]
   /** Uninstalls whose install was never seen (before the backfill, or an event Shopify did not send). */
   orphanUninstalls: number
+  /** Subscription creations and updates between a shop's uninstall and its next install: ignored, since an uninstall cancels the app's subscriptions. */
+  ignoredAfterUninstall: number
 }
 
 /** A yearly price spread over twelve months. Anything else is taken as one month. */
@@ -177,6 +183,8 @@ type ShopState = {
   lastCancel: { period: Period; at: Date; trial: Trial | null } | null
   /** Shopify deactivated the store's billing account after its latest install, and has not reactivated it since. */
   deactivated: boolean
+  /** An uninstall was seen and no install since: the shop does not have the app. */
+  uninstalled: boolean
 }
 
 /** Does the event name the plan this period is on? An event that names no plan cannot be told apart, so it counts as a match. */
@@ -216,10 +224,11 @@ export function derive(events: RawEvent[], now: Date): Derived {
   const moneyEvents: RawEvent[] = []
   const shops = new Map<string, ShopState>()
   let orphanUninstalls = 0
+  let ignoredAfterUninstall = 0
 
   const stateOf = (shop: string): ShopState => {
     let s = shops.get(shop)
-    if (!s) shops.set(shop, (s = { install: null, installCount: 0, sub: null, lastMonthly: 0, lastPlan: null, lastBilling: null, trial: null, lastCancel: null, deactivated: false }))
+    if (!s) shops.set(shop, (s = { install: null, installCount: 0, sub: null, lastMonthly: 0, lastPlan: null, lastBilling: null, trial: null, lastCancel: null, deactivated: false, uninstalled: false }))
     return s
   }
 
@@ -355,10 +364,17 @@ export function derive(events: RawEvent[], now: Date): Derived {
     const s = stateOf(e.shop)
     settle(s, e.occurredAt)
 
+    // The shop uninstalled and has not installed again, so it has no subscription to open or change.
+    if (s.uninstalled && (e.type === EVENT.SUB_CREATED || e.type === EVENT.SUB_UPDATED)) {
+      ignoredAfterUninstall++
+      continue
+    }
+
     switch (e.type) {
       case EVENT.INSTALLED:
         // An install means the store is active, whatever Shopify said about it before.
         s.deactivated = false
+        s.uninstalled = false
         if (!s.install) {
           s.installCount++
           const row: InstallRow = { shop: e.shop, seq: s.installCount, installedAt: e.occurredAt, uninstalledAt: null, reason: null, reasonDescription: null }
@@ -388,6 +404,7 @@ export function derive(events: RawEvent[], now: Date): Derived {
         // Uninstalling takes the subscription with it, and any trial.
         closePeriod(s, e.occurredAt, "uninstalled")
         s.lastCancel = null
+        s.uninstalled = true
         break
 
       case EVENT.SUB_CREATED:
@@ -465,6 +482,7 @@ export function derive(events: RawEvent[], now: Date): Derived {
     trials,
     daily: buildDaily({ sorted, installs, periods, trials, uninstallDates, inactiveUninstallDates, moneyEvents, now }),
     orphanUninstalls,
+    ignoredAfterUninstall,
   }
 }
 

@@ -236,12 +236,16 @@ export function generateDemoEvents(options: { now: Date; days?: number; seed?: n
               emit("EARNING_CHARGE_RECURRING", chargeAt + 2 * DAY_MS, shop, shopGid, { grossCents: gross, netCents: gross - fee, feeCents: fee })
               if (rand() < 0.02) emit("EARNING_REFUND", chargeAt + 4 * DAY_MS, shop, shopGid, { grossCents: -gross, netCents: -(gross - fee), feeCents: -fee })
               cycle++
-              if (!planChanged && cycle > 1 && rand() < 0.05) {
+              const changeAt = !planChanged && cycle > 1 && rand() < 0.05 ? chargeAt + between(2, 25) * DAY_MS : null
+              const cancels = rand() < app.churnPerCycle * (yearly ? 3 : 1)
+              if (cancels) subscriptionEnd = chargeAt + between(5, 28) * DAY_MS
+              // A plan change only while the subscription runs: before its cancel and before the shop
+              // leaves, since Shopify cancels an app's subscriptions when the app is uninstalled.
+              if (changeAt !== null && changeAt < Math.min(subscriptionEnd, uninstallAt)) {
                 planChanged = true
-                emit("SUBSCRIPTION_UPDATED", chargeAt + between(2, 25) * DAY_MS, shop, shopGid, { ...plan, amountCents: Math.round(price * 1.4), state: "UPDATED" })
+                emit("SUBSCRIPTION_UPDATED", changeAt, shop, shopGid, { ...plan, amountCents: Math.round(price * 1.4), state: "UPDATED" })
               }
-              if (rand() < app.churnPerCycle * (yearly ? 3 : 1)) {
-                subscriptionEnd = chargeAt + between(5, 28) * DAY_MS
+              if (cancels) {
                 emit("SUBSCRIPTION_CANCELED", Math.min(subscriptionEnd, uninstallAt), shop, shopGid, { state: "CANCELED" })
                 break
               }

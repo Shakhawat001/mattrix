@@ -18,7 +18,7 @@ import {
   earliestDate,
 } from "@/lib/analytics/queries"
 import { cohortRetention } from "@/lib/analytics/aggregate"
-import { DERIVE_VERSION } from "@/lib/analytics/derive"
+import { DERIVE_VERSION, derive } from "@/lib/analytics/derive"
 import { rebuildApp, rebuildStaleApps } from "@/lib/analytics/rebuild"
 import type { Database } from "@/lib/db/client"
 import { apps, connections, dailyMetrics, events, installs, subscriptions, syncRuns, trials } from "@/lib/db/schema"
@@ -668,6 +668,15 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
       const rows = await database.db.select({ at: installs.uninstalledAt }).from(installs).where(eq(installs.appId, app))
       return rows.filter((r) => r.at && r.at.toISOString().slice(0, 10) === date).length
     }
+
+    it("never changes a plan after the shop uninstalled", () => {
+      // Seeded on this date, the generator used to send three such plan changes.
+      const now = new Date("2026-06-15T12:00:00Z")
+      const { events: generated, apps: demoApps } = generateDemoEvents({ now })
+      for (const app of demoApps) {
+        expect(derive(generated.filter((e) => e.appGid === app.gid), now).ignoredAfterUninstall, app.name).toBe(0)
+      }
+    })
 
     it("is repeatable for a given seed, and different for another", () => {
       const now = new Date("2026-06-15T12:00:00Z")

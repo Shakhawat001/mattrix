@@ -628,9 +628,118 @@ describe("churn by cause", () => {
   })
 })
 
+describe("subscription events after an uninstall", () => {
+  // Shopify cancels an app's subscriptions when the app is uninstalled. Until the shop installs it
+  // again, a creation or an update that Shopify sends late opens and changes nothing.
+  const x = "x.myshopify.com"
+  const y = "y.myshopify.com"
+
+  it("ignores a plan change and a new subscription between an uninstall and the next install", () => {
+    // y pays $10 from 1 January. x pays $20 from 5 January and uninstalls on 10 January; a plan
+    // change to $30 on 15 January and a new subscription with a trial on 20 January follow.
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", y),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", y, monthly(1000, null, "basic")),
+        ev("RELATIONSHIP_INSTALLED", "2026-01-05", x),
+        ev("SUBSCRIPTION_CREATED", "2026-01-05", x, monthly(2000)),
+        ev("RELATIONSHIP_UNINSTALLED", "2026-01-10", x),
+        ev("SUBSCRIPTION_UPDATED", "2026-01-15", x, monthly(3000, null, "plus")),
+        ev("SUBSCRIPTION_CREATED", "2026-01-20", x, monthly(2000, 7)),
+      ],
+      NOW,
+    )
+    expect(r.ignoredAfterUninstall).toBe(2)
+    expect(r.subscriptions.filter((p) => p.shop === x)).toMatchObject([{ kind: "new", monthlyCents: 2000, endReason: "uninstalled" }])
+    expect(r.trials).toHaveLength(0)
+    expect(dayOf(r, "2026-01-04")).toMatchObject({ activeSubs: 1, mrrCents: 1000 })
+    expect(dayOf(r, "2026-01-05")).toMatchObject({ newMrrCents: 2000, newSubs: 1, activeSubs: 2, mrrCents: 3000 })
+    expect(dayOf(r, "2026-01-10")).toMatchObject({ uninstalls: 1, churnedMrrCents: 2000, canceledSubs: 1, activeInstalls: 1, activeSubs: 1, mrrCents: 1000 })
+    // MRR is back to what it was before x subscribed, and stays there.
+    expect(dayOf(r, "2026-01-15")).toMatchObject({ newMrrCents: 0, expansionMrrCents: 0, newSubs: 0, activeSubs: 1, mrrCents: 1000 })
+    expect(dayOf(r, "2026-01-20")).toMatchObject({ newMrrCents: 0, newSubs: 0, trialsStarted: 0, trialSubs: 0, activeSubs: 1, mrrCents: 1000 })
+    expect(r.daily.at(-1)).toMatchObject({ activeInstalls: 1, activeSubs: 1, mrrCents: 1000, trialSubs: 0 })
+    mrrAddsUp(r)
+  })
+
+  it("opens a period again once the shop reinstalls", () => {
+    // x pays $20 from 1 January and uninstalls on 10 January. A plan change on 15 January is
+    // ignored. x installs again on 20 January and subscribes to $30 at the same moment.
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", x),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", x, monthly(2000)),
+        ev("RELATIONSHIP_UNINSTALLED", "2026-01-10", x),
+        ev("SUBSCRIPTION_UPDATED", "2026-01-15", x, monthly(2500)),
+        // In this order on purpose: at the same instant the install still comes first.
+        ev("SUBSCRIPTION_CREATED", "2026-01-20", x, monthly(3000, null, "plus")),
+        ev("RELATIONSHIP_INSTALLED", "2026-01-20", x),
+      ],
+      NOW,
+    )
+    expect(r.ignoredAfterUninstall).toBe(1)
+    expect(r.subscriptions).toMatchObject([
+      { kind: "new", monthlyCents: 2000, endReason: "uninstalled" },
+      { kind: "new", monthlyCents: 3000, planHandle: "plus", previousMonthlyCents: null, endedAt: null },
+    ])
+    expect(dayOf(r, "2026-01-15")).toMatchObject({ newMrrCents: 0, activeSubs: 0, mrrCents: 0 })
+    expect(dayOf(r, "2026-01-20")).toMatchObject({ installs: 1, reinstalls: 1, newMrrCents: 3000, newSubs: 1, activeInstalls: 1, activeSubs: 1, mrrCents: 3000 })
+    expect(r.daily.at(-1)).toMatchObject({ activeSubs: 1, mrrCents: 3000 })
+    mrrAddsUp(r)
+  })
+
+  it("handles an update at the same instant as an uninstall before the uninstall", () => {
+    // x pays $20 from 1 January. On 10 January at noon Shopify reports a move to $30 and the uninstall.
+    const r = derive(
+      [
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01", x),
+        ev("SUBSCRIPTION_CREATED", "2026-01-01", x, monthly(2000)),
+        ev("RELATIONSHIP_UNINSTALLED", "2026-01-10T12:00:00Z", x),
+        ev("SUBSCRIPTION_UPDATED", "2026-01-10T12:00:00Z", x, monthly(3000, null, "plus")),
+      ],
+      NOW,
+    )
+    expect(r.ignoredAfterUninstall).toBe(0)
+    // The plan change happens, and the uninstall ends the new plan the moment it begins.
+    expect(r.subscriptions).toMatchObject([
+      { kind: "new", monthlyCents: 2000, endReason: "replaced" },
+      { kind: "change", monthlyCents: 3000, previousMonthlyCents: 2000, endReason: "uninstalled" },
+    ])
+    expect(r.subscriptions[1].endedAt).toEqual(r.subscriptions[1].startedAt)
+    // The new plan never paid, so the $20 is what was lost.
+    expect(dayOf(r, "2026-01-10")).toMatchObject({ uninstalls: 1, expansionMrrCents: 0, churnedMrrCents: 2000, canceledSubs: 1, activeInstalls: 0, activeSubs: 0, mrrCents: 0 })
+    mrrAddsUp(r)
+  })
+
+  it("still gives a shop with no install in the history its periods, up to its uninstall", () => {
+    // x installed before the history starts. Its subscription is first seen in an update ($20 on
+    // 5 January), moves to $30 on 15 January, and ends with the uninstall on 20 January. A plan
+    // change on 25 January comes after the uninstall.
+    const r = derive(
+      [
+        ev("SUBSCRIPTION_UPDATED", "2026-01-05", x, monthly(2000)),
+        ev("SUBSCRIPTION_CREATED", "2026-01-15", x, monthly(3000, null, "plus")),
+        ev("RELATIONSHIP_UNINSTALLED", "2026-01-20", x),
+        ev("SUBSCRIPTION_UPDATED", "2026-01-25", x, monthly(3000, null, "plus")),
+      ],
+      NOW,
+    )
+    expect(r.subscriptions).toMatchObject([
+      { kind: "new", monthlyCents: 2000, endReason: "replaced" },
+      { kind: "change", monthlyCents: 3000, previousMonthlyCents: 2000, endReason: "uninstalled" },
+    ])
+    expect(r).toMatchObject({ orphanUninstalls: 1, ignoredAfterUninstall: 1 })
+    expect(dayOf(r, "2026-01-05")).toMatchObject({ newMrrCents: 2000, newSubs: 1, activeSubs: 1, mrrCents: 2000 })
+    expect(dayOf(r, "2026-01-15")).toMatchObject({ expansionMrrCents: 1000, newMrrCents: 0, activeSubs: 1, mrrCents: 3000 })
+    expect(dayOf(r, "2026-01-20")).toMatchObject({ uninstalls: 1, churnedMrrCents: 3000, canceledSubs: 1, activeInstalls: 0, activeSubs: 0, mrrCents: 0 })
+    expect(dayOf(r, "2026-01-25")).toMatchObject({ newMrrCents: 0, activeSubs: 0, mrrCents: 0 })
+    mrrAddsUp(r)
+  })
+})
+
 describe("edge cases", () => {
   it("returns nothing for no events", () => {
-    expect(derive([], NOW)).toEqual({ installs: [], subscriptions: [], trials: [], daily: [], orphanUninstalls: 0 })
+    expect(derive([], NOW)).toEqual({ installs: [], subscriptions: [], trials: [], daily: [], orphanUninstalls: 0, ignoredAfterUninstall: 0 })
   })
 
   it("orders events on the same instant: install, then subscription, then uninstall", () => {
