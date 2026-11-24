@@ -23,6 +23,7 @@ This file is generated from `lib/analytics/metrics-registry.ts`, the same list t
 - **Rates look at the starting group.** Uninstall rate, subscriber churn, revenue churn and both revenue retention figures take the shops that were there at the first moment of the range and ask what became of exactly those shops by the end. A shop that joins and leaves inside the range was never part of that group, so these rates stay between 0% and 100% (net revenue retention can pass 100% when upgrades outweigh losses). A shop that leaves and comes back inside the range counts as kept.
 - **A figure with nothing to divide by is shown as n/a**, never as 0% or infinity.
 - **Cohorts follow their group up to today.** The cohort tables and win-back take a group of shops from the range (those that installed, first paid or uninstalled in it) and follow it to today, so an older range has had more time to show what became of its group.
+- **At risk is read for now.** MRR set to end, trials ending soon and frozen MRR describe the subscriptions as they stand at the moment you look, whatever the date range.
 
 ## The numbers
 
@@ -76,6 +77,9 @@ This file is generated from `lib/analytics/metrics-registry.ts`, the same list t
 | Shops won back | Shops that uninstalled during the period and installed the app again afterwards, up to today. A shop counts once however often it left. | count | higher |
 | Win-back rate | Of the shops that uninstalled during the period, the share that installed the app again afterwards, up to today. It stays between 0% and 100%. | percent | higher |
 | Time to return | The median time from a shop's first uninstall during the period to its next install, among the shops won back. | days | neither |
+| MRR set to end | The MRR of paying subscriptions whose cancel Shopify has scheduled for a later day (cancelEffectiveOn) and that have not ended yet. Each keeps paying until that day, then counts as churned. | US dollars | lower |
+| Trials ending soon | Free trials of a paid plan that end in the next 7 days, with what they would add to MRR. Each converts when it ends unless the merchant cancels or uninstalls first. A trial whose subscription is set to end before the trial does is left out: it will not convert. | count | neither |
+| Frozen MRR | The MRR of paying subscriptions that Shopify froze in the last 90 days, because the store closed or stopped paying Shopify, and that have not come back. Unfreezing brings each back at the same price. One whose shop has since uninstalled the app or canceled is left out: it cannot come back. | US dollars | lower |
 
 ## Where the numbers come from
 

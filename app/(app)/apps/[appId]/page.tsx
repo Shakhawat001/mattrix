@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import Link from "next/link"
+import { AT_RISK_ROWS, AtRiskCard } from "@/components/app/at-risk"
 import { ExportLink } from "@/components/app/export-link"
 import { StatGrid } from "@/components/app/kpi-card"
 import { PageHeader } from "@/components/app/page-header"
@@ -7,6 +8,7 @@ import { PlanMix } from "@/components/app/plan-mix"
 import { BarList } from "@/components/charts/bar-list"
 import { ChartCard } from "@/components/charts/chart-card"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { getAtRisk } from "@/lib/analytics/at-risk"
 import type { SearchParams } from "@/lib/analytics/page-params"
 import { getPlanMix, getReasons } from "@/lib/analytics/queries"
 import { formatRange } from "@/lib/analytics/range"
@@ -23,10 +25,10 @@ export default async function AppOverviewPage({ params, searchParams }: { params
   await requireSession()
   const [{ appId }, query] = await Promise.all([params, searchParams])
   const d = await loadDashboard(query, appId)
-  const { params: p, rows, points, kpis, comparedKpis, caption, comparison } = d
+  const { params: p, rows, points, kpis, comparedKpis, caption, comparison, now } = d
   const gran = p.granularity
   const db = getDb()
-  const [plans, reasons] = await Promise.all([getPlanMix(db, [appId], p.range.to), getReasons(db, [appId], p.range)])
+  const [plans, reasons, atRisk] = await Promise.all([getPlanMix(db, [appId], p.range.to), getReasons(db, [appId], p.range), getAtRisk(db, [appId], now, AT_RISK_ROWS)])
   const carry = carriedFrom(query)
 
   return (
@@ -40,6 +42,8 @@ export default async function AppOverviewPage({ params, searchParams }: { params
 
       <StatGrid ids={["mrr", "activeSubs", "trialSubs", "activeInstalls"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} />
       <StatGrid ids={["netNewMrr", "nrr", "subChurnRate", "trialConversion"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} />
+
+      <AtRiskCard data={atRisk} carry={carry} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard title="MRR" description="Monthly recurring revenue at the end of each period." data={single(rows, p.range, gran, { key: "mrr", label: "MRR", color: slotColor(0), read: readers.mrr }, "money", comparison)} kind="area" granularity={gran} />

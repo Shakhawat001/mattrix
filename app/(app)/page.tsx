@@ -1,12 +1,14 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { ChartLineUpIcon } from "@phosphor-icons/react/dist/ssr"
+import { AT_RISK_ROWS, AtRiskCard } from "@/components/app/at-risk"
 import { EmptyState } from "@/components/app/empty-state"
 import { ExportLink } from "@/components/app/export-link"
 import { StatGrid } from "@/components/app/kpi-card"
 import { MatrixTable } from "@/components/app/matrix-table"
 import { PageHeader } from "@/components/app/page-header"
 import { ChartCard } from "@/components/charts/chart-card"
+import { getAtRisk } from "@/lib/analytics/at-risk"
 import type { MetricId } from "@/lib/analytics/metrics-registry"
 import { buildMatrix } from "@/lib/analytics/matrix"
 import type { SearchParams } from "@/lib/analytics/page-params"
@@ -15,6 +17,7 @@ import { loadDashboard } from "@/lib/analytics/scope"
 import { swatchColor } from "@/lib/analytics/series"
 import { carriedFrom } from "@/lib/analytics/url"
 import { INSTALLS_AND_UNINSTALLS, MRR_MOVEMENT, SUBS_AND_CANCELS, byApp, totals } from "@/lib/analytics/view"
+import { getDb } from "@/lib/db/client"
 import { requireSession } from "@/lib/auth/dal"
 
 export const metadata: Metadata = { title: "All apps" }
@@ -53,9 +56,10 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
     )
   }
 
-  const { params, rows, points, kpis, comparedKpis, caption, series, shown, colors, retention, comparedRetention } = d
+  const { params, rows, points, kpis, comparedKpis, caption, series, shown, colors, retention, comparedRetention, now } = d
   const gran = params.granularity
   const carry = carriedFrom(query)
+  const atRisk = await getAtRisk(getDb(), params.appIds, now, AT_RISK_ROWS)
 
   const matrix = buildMatrix(
     shown.map((a) => ({ id: a.id, label: a.label, color: swatchColor(colors, a.id), href: `/apps/${a.id}${carry}` })),
@@ -78,6 +82,8 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
 
       <StatGrid ids={["mrr", "activeInstalls", "activeSubs", "netNewMrr"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} />
       <StatGrid ids={["nrr", "subChurnRate", "trialConversion", "charged"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} />
+
+      <AtRiskCard data={atRisk} apps={shown} carry={carry} />
 
       <MatrixTable
         title="Apps side by side"

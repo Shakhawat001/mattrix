@@ -44,8 +44,8 @@ What we build next, in order. Written 24 November 2026. Tick an item in the same
 ### 1.4 At risk
 
 - [x] Keep each subscription's scheduled end (`SUBSCRIPTION_CANCELLATION_SCHEDULED` with `cancelEffectiveOn`) in the derived table.
-- [ ] "MRR at risk": subscriptions set to end, with the date and the shop. Trials ending in the next 7 days. Frozen subscriptions that may come back.
-- [ ] Shown on the overview and on each app's overview, as lists to act on.
+- [x] "MRR at risk": subscriptions set to end, with the date and the shop. Trials ending in the next 7 days. Frozen subscriptions that may come back.
+- [x] Shown on the overview and on each app's overview, as lists to act on.
 
 ### 1.5 Charges by kind, usage and tiered prices
 

@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto"
 import { eq, sql } from "drizzle-orm"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { POST } from "@/app/api/mcp/route"
-import { COHORT_METRICS, METRICS } from "@/lib/analytics/metrics-registry"
+import { AT_RISK_METRICS, COHORT_METRICS, METRICS } from "@/lib/analytics/metrics-registry"
 import { rebuildStaleApps } from "@/lib/analytics/rebuild"
 import { createApiToken, revokeApiToken, type NewApiToken } from "@/lib/auth/api-tokens"
 import { getDatabase, type Database } from "@/lib/db/client"
@@ -214,7 +214,7 @@ describe.skipIf(!hasDatabase)("MCP endpoint (Postgres)", () => {
     it("come as a tool, for every metric or for one", async () => {
       const { token: value } = await token()
       const all = (await send(rpc("tools/call", { name: "get_definitions", arguments: {} }, { token: value }))).message.result.structuredContent
-      expect(all.data.metrics).toHaveLength(Object.keys(METRICS).length + Object.keys(COHORT_METRICS).length)
+      expect(all.data.metrics).toHaveLength(Object.keys(METRICS).length + Object.keys(COHORT_METRICS).length + Object.keys(AT_RISK_METRICS).length)
       expect(all.data.conventions.length).toBeGreaterThan(10)
       expect(all.data.answer_format.join(" ")).toContain("merchant_text_untrusted")
 

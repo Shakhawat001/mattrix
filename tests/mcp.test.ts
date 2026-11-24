@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { COHORT_METRICS, METRICS } from "@/lib/analytics/metrics-registry"
+import { AT_RISK_METRICS, COHORT_METRICS, METRICS } from "@/lib/analytics/metrics-registry"
 import type { AppInfo, ConnectionOverview } from "@/lib/analytics/queries"
 import { log } from "@/lib/log"
 import { bearerToken, unauthorized } from "@/lib/mcp/auth"
@@ -254,10 +254,11 @@ describe("list_apps", () => {
 
 describe("the definitions", () => {
   it("list every metric in the registry once, with its unit and direction", () => {
-    const ids = [...Object.keys(METRICS), ...Object.keys(COHORT_METRICS)]
+    const ids = [...Object.keys(METRICS), ...Object.keys(COHORT_METRICS), ...Object.keys(AT_RISK_METRICS)]
     expect(METRIC_DEFINITIONS.map((m) => m.id)).toEqual(ids)
     expect(METRIC_DEFINITIONS.find((m) => m.id === "mrr")).toEqual({ id: "mrr", label: "MRR", group: "range", unit: "US dollars", better_when: "higher", description: METRICS.mrr.description })
     expect(METRIC_DEFINITIONS.find((m) => m.id === "winBackRate")?.group).toBe("cohort")
+    expect(METRIC_DEFINITIONS.find((m) => m.id === "mrrSetToEnd")).toMatchObject({ group: "at_risk", unit: "US dollars", better_when: "lower" })
   })
 
   it("give the conventions as plain sentences", () => {
@@ -269,6 +270,7 @@ describe("the definitions", () => {
     const markdown = renderDefinitionsMarkdown()
     for (const m of METRIC_DEFINITIONS) expect(markdown).toContain(`| ${m.id} | ${m.label} | ${m.description} |`)
     expect(markdown).toContain("except revenue retention by cohort, shops won back, win-back rate and time to return, which follow")
+    expect(markdown).toContain("and MRR set to end, trials ending soon and frozen MRR, which are read for the moment you ask.")
     expect(markdown).not.toMatch(/[—–]/)
   })
 })

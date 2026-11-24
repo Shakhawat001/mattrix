@@ -87,3 +87,16 @@ export const COHORT_METRICS = {
 } as const satisfies Record<string, MetricDef>
 
 export type CohortMetricId = keyof typeof COHORT_METRICS
+
+/**
+ * What may be lost soon or may come back, read for now from the subscription periods: the at-risk
+ * card on the overviews. Like the cohort numbers they are not KPIs of a range, so they are kept out
+ * of METRICS, but they are defined here the same way and written into docs/METRICS.md with the rest.
+ */
+export const AT_RISK_METRICS = {
+  mrrSetToEnd: { label: "MRR set to end", format: "money", good: "down", description: "The MRR of paying subscriptions whose cancel Shopify has scheduled for a later day (cancelEffectiveOn) and that have not ended yet. Each keeps paying until that day, then counts as churned." },
+  trialsEndingSoon: { label: "Trials ending soon", format: "int", good: "none", description: "Free trials of a paid plan that end in the next 7 days, with what they would add to MRR. Each converts when it ends unless the merchant cancels or uninstalls first. A trial whose subscription is set to end before the trial does is left out: it will not convert." },
+  frozenMrr: { label: "Frozen MRR", format: "money", good: "down", description: "The MRR of paying subscriptions that Shopify froze in the last 90 days, because the store closed or stopped paying Shopify, and that have not come back. Unfreezing brings each back at the same price. One whose shop has since uninstalled the app or canceled is left out: it cannot come back." },
+} as const satisfies Record<string, MetricDef>
+
+export type AtRiskMetricId = keyof typeof AT_RISK_METRICS

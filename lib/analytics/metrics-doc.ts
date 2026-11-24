@@ -1,4 +1,4 @@
-import { COHORT_METRICS, METRICS, type MetricDef, type MetricFormat } from "./metrics-registry"
+import { AT_RISK_METRICS, COHORT_METRICS, METRICS, type MetricDef, type MetricFormat } from "./metrics-registry"
 
 // docs/METRICS.md is written from the registry that the dashboard's own tooltips read, so what
 // the page says and what the file says cannot disagree. `pnpm docs:metrics` rewrites the file;
@@ -28,6 +28,7 @@ export const CONVENTIONS: readonly string[] = [
   "**Rates look at the starting group.** Uninstall rate, subscriber churn, revenue churn and both revenue retention figures take the shops that were there at the first moment of the range and ask what became of exactly those shops by the end. A shop that joins and leaves inside the range was never part of that group, so these rates stay between 0% and 100% (net revenue retention can pass 100% when upgrades outweigh losses). A shop that leaves and comes back inside the range counts as kept.",
   "**A figure with nothing to divide by is shown as n/a**, never as 0% or infinity.",
   "**Cohorts follow their group up to today.** The cohort tables and win-back take a group of shops from the range (those that installed, first paid or uninstalled in it) and follow it to today, so an older range has had more time to show what became of its group.",
+  "**At risk is read for now.** MRR set to end, trials ending soon and frozen MRR describe the subscriptions as they stand at the moment you look, whatever the date range.",
 ]
 
 /** Where the numbers come from, in markdown. */
@@ -35,7 +36,7 @@ export const SOURCES =
   "Everything is built from the events Shopify's Partner API reports: installs and uninstalls, subscription changes, charges and earnings. Each event is stored once, as Shopify sent it. From the events the worker rebuilds one record per stay of a shop (install to uninstall), one per period on one plan at one price, and one per free trial. A daily table sums those into what the charts read. The dashboard never asks Shopify for anything itself. See `docs/ARCHITECTURE.md`."
 
 export function renderMetricsDoc(): string {
-  const rows = ([...Object.values(METRICS), ...Object.values(COHORT_METRICS)] as MetricDef[]).map((m) => `| ${m.label} | ${m.description} | ${UNIT[m.format]} | ${BETTER[m.good]} |`)
+  const rows = ([...Object.values(METRICS), ...Object.values(COHORT_METRICS), ...Object.values(AT_RISK_METRICS)] as MetricDef[]).map((m) => `| ${m.label} | ${m.description} | ${UNIT[m.format]} | ${BETTER[m.good]} |`)
 
   return `# Metric definitions
 
