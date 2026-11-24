@@ -5,6 +5,7 @@ import { log } from "@/lib/log"
 import type { McpContext } from "./context"
 import { DEFINITIONS_URI, renderDefinitionsMarkdown } from "./definitions"
 import { hideShopDomains, type Envelope } from "./output"
+import { registerPrompts } from "./prompts"
 import { strictInput, ToolError, type McpTool } from "./tool"
 import * as tools from "./tools"
 
@@ -42,6 +43,7 @@ export function buildServer(ctx: McpContext): McpServer {
     { title: "Metric definitions", description: "What every number means: the conventions, how the tools write numbers, and every metric's definition. The same as get_definitions, as markdown.", mimeType: "text/markdown" },
     async (uri) => ({ contents: [{ uri: uri.href, mimeType: "text/markdown", text: renderDefinitionsMarkdown() }] })
   )
+  registerPrompts(server)
   return server
 }
 

@@ -136,6 +136,18 @@ Tools with a range take a `preset` (such as `last_30_days`, the default) or `fro
 
 Every answer is JSON in the same shape: `range` (when the tool has one), `timezone` (always `"UTC"`), `notes` with the caveats to read first (demo data, a failed sync, earnings that cannot be read, where history starts), then `data`. Money comes as `{ cents, formatted }`, a percentage as `{ ratio, formatted }`, where `formatted` is what the dashboard shows. A figure with nothing to divide by is `null`, never 0. Apps hidden in Settings are left out, as on the dashboard. Text that merchants wrote, such as uninstall comments, only ever appears in fields named `merchant_text_untrusted`, and agents are told to treat it as data, not instructions.
 
+## Prompts
+
+Three ready-made requests. Each tells the agent which tools to call, in what order and with what input, then what to write.
+
+| Prompt | Arguments | What it asks for |
+| --- | --- | --- |
+| `weekly_review` | none | The last 7 days against the 7 before: MRR and the shops that moved it, installs and uninstalls, churn by cause, what is at risk, and what to do this week. |
+| `investigate_churn` | `app`: an app's id or a word from its name (default: every app together). `range`: a preset such as `last_30_days` or `last_month` (default: `last_90_days`), or two days as `2026-08-01..2026-10-31`. | Who left, why and when: churn by cause, the shops behind churned MRR, uninstall reasons and comments, how long shops stayed, win-back, and what to check or change. |
+| `at_risk_followup` | none | Who to contact now and why: the subscriptions set to end and the trials ending soon, most urgent first, each with what its history shows and a way to open the conversation. |
+
+Claude Code and OpenCode list them when you type `/appmetrics:`, as `/appmetrics:weekly_review` and so on (Claude Code also takes `/mcp__appmetrics__weekly_review`). Arguments follow the name, separated by spaces: `/appmetrics:investigate_churn show last_30_days`. A range typed on its own is read as the range. In Claude Desktop, the prompts are under **+** in the message box.
+
 ## Limits
 
 - Each tool reads in a read-only database transaction, and a query that runs longer than 15 seconds is stopped.

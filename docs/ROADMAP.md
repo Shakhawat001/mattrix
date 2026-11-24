@@ -96,7 +96,7 @@ What we build next, in order. Written 24 November 2026. Tick an item in the same
 - [x] Every tool runs in a read-only database transaction with a short statement timeout. A rate limit per token. A log of every call.
 - [ ] Tools: `list_apps`, `get_metrics`, `get_timeseries`, `explain_mrr_change`, `get_retention`, `get_churn`, `get_trials`, `list_shops`, `get_shop_timeline`, `list_events`, `get_data_health`, `get_definitions`. Then `get_at_risk` and `list_annotations` once those features land.
 - [ ] Every answer states its range, that days are UTC, and its caveats. Merchant-written text is marked as untrusted. Results are capped and paged.
-- [ ] A resource with the metric definitions, and prompts for a weekly review and a churn investigation.
+- [x] A resource with the metric definitions, and prompts for a weekly review and a churn investigation.
 
 ### 2.4 Docs
 
