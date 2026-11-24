@@ -64,3 +64,18 @@ export const metricValue = (kpis: Kpis, id: MetricId): number | null => kpis[id]
 
 /** The heading to use where space is tight. */
 export const shortLabel = (id: MetricId): string => (METRICS[id] as MetricDef).short ?? METRICS[id].label
+
+/**
+ * Numbers that follow a group of shops from the range up to today, each read from the per-shop
+ * tables for one block of a page: the revenue cohorts and win-back. They are not KPIs of a range
+ * (no card, no comparison, nothing that adds up), so they are kept out of METRICS, but they are
+ * defined here the same way and written into docs/METRICS.md with the rest.
+ */
+export const COHORT_METRICS = {
+  cohortMrrRetention: { label: "Revenue retention by cohort", format: "percent", good: "up", description: "Shops grouped by the month they first started paying, a trial counting from its conversion. At the end of that month and of each month after, the MRR those shops still pay over what they paid when they started. Upgrades count, so it can pass 100%." },
+  wonBack: { label: "Shops won back", format: "int", good: "up", description: "Shops that uninstalled during the period and installed the app again afterwards, up to today. A shop counts once however often it left." },
+  winBackRate: { label: "Win-back rate", format: "percent", good: "up", description: "Of the shops that uninstalled during the period, the share that installed the app again afterwards, up to today. It stays between 0% and 100%." },
+  daysToReturn: { label: "Time to return", format: "days", good: "none", description: "The median time from a shop's first uninstall during the period to its next install, among the shops won back." },
+} as const satisfies Record<string, MetricDef>
+
+export type CohortMetricId = keyof typeof COHORT_METRICS

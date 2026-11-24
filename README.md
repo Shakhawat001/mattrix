@@ -12,7 +12,7 @@ It is built for one person: you. One login from an environment variable, one Doc
 
 - **Every app side by side.** A table of all your apps against the metrics that matter, sortable, with the change since the last period under each number. Add more apps and they appear.
 - **Any date range.** Presets for the usual spans, or pick any two days. Compare with the previous period or the same period last year. Group by day, week or month. The range lives in the URL, so a view can be bookmarked.
-- **The numbers.** MRR, ARR, new, expansion, contraction and churned MRR, net and gross revenue retention, subscriber churn, ARPU, a lifetime value estimate, trial conversion, installs and uninstalls, uninstall reasons and what merchants wrote, how long installs last, cohort retention, plan mix, charges, fees and refunds. Every number has its definition one hover away, and [all of them are written down](docs/METRICS.md).
+- **The numbers.** MRR, ARR, new, expansion, contraction and churned MRR, net and gross revenue retention, subscriber churn, ARPU, a lifetime value estimate, trial conversion, installs and uninstalls, uninstall reasons and what merchants wrote, how long installs last, cohort retention by install and by revenue, shops won back, plan mix, charges, fees and refunds. Every number has its definition one hover away, and [all of them are written down](docs/METRICS.md).
 - **Per-app pages.** Overview, growth, revenue, retention, trials, churn, a searchable list of shops, and the raw event log.
 - **CSV export** of the daily numbers, the shop list and the event log.
 

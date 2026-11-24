@@ -63,8 +63,8 @@ What we build next, in order. Written 24 November 2026. Tick an item in the same
 
 ### 1.8 Revenue cohorts and win-back
 
-- [ ] Cohorts by month of first payment: how much MRR each cohort still pays, month by month.
-- [ ] Win-back: shops that uninstalled and came back, and how long it took.
+- [x] Cohorts by month of first payment: how much MRR each cohort still pays, month by month.
+- [x] Win-back: shops that uninstalled and came back, and how long it took.
 
 ### 1.9 Annotations
 

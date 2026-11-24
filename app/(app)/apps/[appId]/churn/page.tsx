@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { StatGrid } from "@/components/app/kpi-card"
 import { PageHeader } from "@/components/app/page-header"
+import { WinBackCard } from "@/components/app/win-back"
 import { BarList } from "@/components/charts/bar-list"
 import { ChartCard } from "@/components/charts/chart-card"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,6 +12,7 @@ import { formatDate, formatRange } from "@/lib/analytics/range"
 import { loadDashboard } from "@/lib/analytics/scope"
 import { slotColor } from "@/lib/analytics/series"
 import { readers, totals } from "@/lib/analytics/view"
+import { getWinBack } from "@/lib/analytics/win-back"
 import { getDb } from "@/lib/db/client"
 import { requireSession } from "@/lib/auth/dal"
 
@@ -23,7 +25,7 @@ export default async function ChurnPage({ params, searchParams }: { params: Prom
   const { params: p, rows, points, kpis, comparedKpis, caption } = d
   const gran = p.granularity
   const db = getDb()
-  const [reasons, comments] = await Promise.all([getReasons(db, [appId], p.range), getExplanations(db, [appId], p.range, 20)])
+  const [reasons, comments, winBack] = await Promise.all([getReasons(db, [appId], p.range), getExplanations(db, [appId], p.range, 20), getWinBack(db, p.appIds, p.range)])
 
   return (
     <>
@@ -68,6 +70,8 @@ export default async function ChurnPage({ params, searchParams }: { params: Prom
           )}
         </CardContent>
       </Card>
+
+      <WinBackCard data={winBack} />
     </>
   )
 }

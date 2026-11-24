@@ -27,7 +27,7 @@ Everything can be rebuilt from the first layer.
 2. **Derived `installs`, `subscriptions`, `trials`.** One row per stay of a shop (install to uninstall), per period on one plan at one price, and per free trial. They are rebuilt for an app from its events by one pure function, `derive()` in `lib/analytics/derive.ts`. It takes events and a date and returns rows, so it is tested without a database. Each app records the `DERIVE_VERSION` it was built with, and the worker rebuilds any app built with an older one, so a deploy that changes a rule recomputes all of history.
 3. **Rollup `daily_metrics`.** One row per app per UTC day. Flows (installs, new MRR, charges) are what happened that day and add up over any range. Stocks (active installs, subscribers, MRR) are the value at the end of the day and are read at a date, never added.
 
-The dashboard's numbers come from layer 3, except the ones that need to know about individual shops (retention of the starting group, cohorts, shop list, plan mix, trials, uninstall reasons), which read layer 2.
+The dashboard's numbers come from layer 3, except the ones that need to know about individual shops (retention of the starting group, install and revenue cohorts, win-back, shop list, plan mix, trials, uninstall reasons), which read layer 2.
 
 ## Syncing
 

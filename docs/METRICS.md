@@ -19,6 +19,7 @@ This file is generated from `lib/analytics/metrics-registry.ts`, the same list t
 - **MRR always adds up.** For every app and every day: MRR = MRR the day before + new + expansion - contraction - churned. A test checks it against generated data.
 - **Rates look at the starting group.** Uninstall rate, subscriber churn, revenue churn and both revenue retention figures take the shops that were there at the first moment of the range and ask what became of exactly those shops by the end. A shop that joins and leaves inside the range was never part of that group, so these rates stay between 0% and 100% (net revenue retention can pass 100% when upgrades outweigh losses). A shop that leaves and comes back inside the range counts as kept.
 - **A figure with nothing to divide by is shown as n/a**, never as 0% or infinity.
+- **Cohorts follow their group up to today.** The cohort tables and win-back take a group of shops from the range (those that installed, first paid or uninstalled in it) and follow it to today, so an older range has had more time to show what became of its group.
 
 ## The numbers
 
@@ -60,6 +61,10 @@ This file is generated from `lib/analytics/metrics-registry.ts`, the same list t
 | Fee rate | Shopify's fees divided by gross earnings. | percent | lower |
 | Refunded | Value of charges refunded to merchants during the period. | US dollars | lower |
 | Credits applied | Value of app credits applied for merchants during the period. | US dollars | lower |
+| Revenue retention by cohort | Shops grouped by the month they first started paying, a trial counting from its conversion. At the end of that month and of each month after, the MRR those shops still pay over what they paid when they started. Upgrades count, so it can pass 100%. | percent | higher |
+| Shops won back | Shops that uninstalled during the period and installed the app again afterwards, up to today. A shop counts once however often it left. | count | higher |
+| Win-back rate | Of the shops that uninstalled during the period, the share that installed the app again afterwards, up to today. It stays between 0% and 100%. | percent | higher |
+| Time to return | The median time from a shop's first uninstall during the period to its next install, among the shops won back. | days | neither |
 
 ## Where the numbers come from
 

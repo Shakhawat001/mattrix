@@ -3,11 +3,13 @@ import { StatGrid } from "@/components/app/kpi-card"
 import { PageHeader } from "@/components/app/page-header"
 import { ChartCard } from "@/components/charts/chart-card"
 import { CohortTable } from "@/components/charts/cohort-table"
+import { RevenueCohortTable } from "@/components/charts/revenue-cohort-table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { cohortRetention } from "@/lib/analytics/aggregate"
 import type { SearchParams } from "@/lib/analytics/page-params"
 import { getStays } from "@/lib/analytics/queries"
 import { formatRange } from "@/lib/analytics/range"
+import { getRevenueCohorts } from "@/lib/analytics/revenue-cohorts"
 import { loadDashboard } from "@/lib/analytics/scope"
 import { slotColor } from "@/lib/analytics/series"
 import { SUBS_AND_CANCELS, readers, single, totals } from "@/lib/analytics/view"
@@ -25,7 +27,9 @@ export default async function RetentionPage({ params, searchParams }: { params: 
 
   // Weekly cohorts unless you asked for months: a day's worth of installs is too few to read a rate from.
   const unit = gran === "month" ? "month" : "week"
-  const cohorts = cohortRetention(await getStays(getDb(), [appId], p.range), unit, now, 12)
+  const db = getDb()
+  const [stays, revenueCohorts] = await Promise.all([getStays(db, p.appIds, p.range), getRevenueCohorts(db, p.appIds, p.range, now)])
+  const cohorts = cohortRetention(stays, unit, now, 12)
 
   return (
     <>
@@ -48,6 +52,18 @@ export default async function RetentionPage({ params, searchParams }: { params: 
         </CardHeader>
         <CardContent>
           <CohortTable rows={cohorts} unit={unit} />
+        </CardContent>
+      </Card>
+
+      <Card size="sm">
+        <CardHeader>
+          <CardTitle className="text-sm">Revenue cohorts</CardTitle>
+          <CardDescription className="text-xs">
+            Each row is the shops that first started paying in that month, a trial counting from its conversion. Each cell is the MRR they still pay at the end of month 0, 1, 2 and on, over what they paid when they started. Upgrades count, so a cell can pass 100%. Only shops that first paid in the date range are included, so a longer range shows more cohorts.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <RevenueCohortTable rows={revenueCohorts} />
         </CardContent>
       </Card>
     </>

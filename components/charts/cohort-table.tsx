@@ -2,7 +2,7 @@ import type { CohortRow } from "@/lib/analytics/aggregate"
 import { bucketTitle } from "@/lib/analytics/view"
 import { formatInt } from "@/lib/format"
 
-const BINS = 7
+export const BINS = 7
 
 /** Which of the seven ramp steps a retention share falls in: 0 to 14% is the first, 86% and up the last. */
 export const retentionBin = (share: number) => Math.min(BINS - 1, Math.max(0, Math.floor(share * BINS)))
