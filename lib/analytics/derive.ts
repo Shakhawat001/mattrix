@@ -166,7 +166,8 @@ const RANK: Record<string, number> = {
   RELATIONSHIP_UNINSTALLED: 6,
   RELATIONSHIP_REACTIVATED: 7,
 }
-const rankOf = (type: string) => RANK[type] ?? 4
+/** An event's place among events on the same instant. The shop timeline orders its events by it too. */
+export const rankOf = (type: string) => RANK[type] ?? 4
 
 type TrialRef = { endsAt: Date; convertedAt: Date | null }
 type Trial = { row: TrialRow; ref: TrialRef }

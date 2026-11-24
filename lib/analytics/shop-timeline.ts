@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm"
 import type { Queryable } from "@/lib/db/client"
 import { events, installs, subscriptions, trials } from "@/lib/db/schema"
-import type { SubscriptionRow, TrialRow } from "./derive"
+import { rankOf, type SubscriptionRow, type TrialRow } from "./derive"
 
 // Everything stored about one shop in one app: its stays, its subscription periods, its trials,
 // and the raw events they were built from, each oldest first.
@@ -89,19 +89,6 @@ export type ShopTimeline = {
   eventCount: number
 }
 
-// Events on the same instant in the order derive() reads them (RANK in derive.ts): the install
-// first, then a cancel, then what a subscription does, charges, and the endings last.
-const RANK: Record<string, number> = {
-  RELATIONSHIP_INSTALLED: 0,
-  SUBSCRIPTION_CANCELED: 1,
-  SUBSCRIPTION_CREATED: 2,
-  SUBSCRIPTION_UPDATED: 2,
-  SUBSCRIPTION_UNFROZEN: 2,
-  SUBSCRIPTION_FROZEN: 4,
-  RELATIONSHIP_UNINSTALLED: 5,
-}
-const rankOf = (type: string) => RANK[type] ?? 3
-
 /**
  * One shop's history in one app, or null when the app has no events for that shop. The shop is
  * its myshopify.com domain, matched without regard to case or surrounding spaces. `maxEvents`
@@ -177,6 +164,7 @@ export async function getShopTimeline(db: Queryable, appId: string, shop: string
     stays,
     subscriptions: subs.map((s) => ({ ...s, endReason: s.endReason as SubscriptionRow["endReason"], kind: s.kind as SubscriptionRow["kind"] })),
     trials: trialRows.map((t) => ({ ...t, outcome: t.outcome as TrialRow["outcome"] })),
+    // Events on the same instant in the order derive() reads them: by its rank, then by id.
     events: eventRows.sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime() || rankOf(a.type) - rankOf(b.type) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
     // Counted in a query of its own; a sync landing between the two must not make it smaller than the list.
     eventCount: Math.max(count?.n ?? 0, eventRows.length),

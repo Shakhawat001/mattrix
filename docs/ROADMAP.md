@@ -59,7 +59,7 @@ What we build next, in order. Written 24 November 2026. Tick an item in the same
 
 ### 1.7 Shop timeline
 
-- [ ] One page per shop per app: every stay, trial, plan change, charge and uninstall (with the merchant's words), in order.
+- [x] One page per shop per app: every stay, trial, plan change, charge and uninstall (with the merchant's words), in order.
 
 ### 1.8 Revenue cohorts and win-back
 

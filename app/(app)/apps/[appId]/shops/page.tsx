@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import Link from "next/link"
 import { ExcludeShopButton } from "@/components/app/exclude-shop-button"
 import { ExportLink } from "@/components/app/export-link"
 import { PageHeader } from "@/components/app/page-header"
@@ -13,7 +14,7 @@ import type { SearchParams } from "@/lib/analytics/page-params"
 import { listShops } from "@/lib/analytics/queries"
 import { formatDate } from "@/lib/analytics/range"
 import { requireVisibleApp } from "@/lib/analytics/scope"
-import { oneOf, pageNumber, toParams, withParams } from "@/lib/analytics/url"
+import { carriedFrom, oneOf, pageNumber, toParams, withParams } from "@/lib/analytics/url"
 import { getDb } from "@/lib/db/client"
 import { formatInt, formatMoney } from "@/lib/format"
 import { requireSession } from "@/lib/auth/dal"
@@ -40,6 +41,7 @@ export default async function ShopsPage({ params, searchParams }: { params: Prom
   const excluded = new Set((await listExcludedShops(getDb())).map((s) => s.shop))
   const current = toParams(query)
   const hrefFor = (n: number) => `/apps/${appId}/shops?${withParams(current, { page: String(n) }).toString()}`
+  const carry = carriedFrom(query)
 
   return (
     <>
@@ -86,7 +88,11 @@ export default async function ShopsPage({ params, searchParams }: { params: Prom
               ) : (
                 rows.map((s) => (
                   <TableRow key={`${s.appId}-${s.shop}`}>
-                    <TableCell className="font-medium">{s.shop}</TableCell>
+                    <TableCell className="font-medium">
+                      <Link href={`/apps/${appId}/shops/${encodeURIComponent(s.shop)}${carry}`} className="underline-offset-4 hover:underline">
+                        {s.shop}
+                      </Link>
+                    </TableCell>
                     <TableCell>
                       <Badge variant={s.installed ? "default" : "secondary"}>{s.installed ? "Installed" : "Uninstalled"}</Badge>
                     </TableCell>

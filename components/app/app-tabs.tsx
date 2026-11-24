@@ -25,12 +25,14 @@ export function AppTabs({ appId }: { appId: string }) {
     <nav aria-label="Sections of this app" className="flex gap-1 overflow-x-auto overflow-y-hidden border-b">
       {TABS.map((tab) => {
         const path = `/apps/${appId}${tab.slug ? `/${tab.slug}` : ""}`
-        const active = pathname === path
+        // A page inside a section, such as one shop's timeline, keeps its section's tab lit.
+        const current = pathname === path
+        const active = current || (tab.slug !== "" && pathname.startsWith(`${path}/`))
         return (
           <Link
             key={tab.slug}
             href={`${path}${carry}`}
-            aria-current={active ? "page" : undefined}
+            aria-current={current ? "page" : active ? "true" : undefined}
             className={cn(
               "-mb-px border-b-2 px-3 py-2.5 text-xs font-semibold tracking-widest whitespace-nowrap uppercase outline-none transition-colors focus-visible:text-foreground",
               active ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
