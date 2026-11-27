@@ -22,11 +22,11 @@ export const getMetricsTool = defineTool({
   input: z.object({ ...APPS_INPUT, ...RANGE_INPUT, ...COMPARE_INPUT, metrics: metricsInput(DEFAULT_METRICS) }),
   async run(ctx, input) {
     const scope = await readScope(ctx, input, { earnings: true })
-    const numbers = await ctx.read((db) => readRangeNumbers(db, scope.appIds, scope.range, scope.compared))
+    const numbers = await ctx.read((db) => readRangeNumbers(db, scope.appIds, scope.range, scope.compared, scope.timeZone))
     const metrics = [...new Set(input.metrics ?? DEFAULT_METRICS)].map((id) => metricAnswer(id, numbers.kpis, numbers.compared))
 
     const notes = [...scope.notes]
     if (metrics.some((m) => m.value === null || m.previous === null)) notes.push(NOTES.nullMeansNothingToDivide)
-    return envelope({ apps: appList(scope.apps), metrics }, { range: scope.range, compared: scope.compared, notes })
+    return envelope({ apps: appList(scope.apps), metrics }, { timeZone: scope.timeZone, range: scope.range, compared: scope.compared, notes })
   },
 })

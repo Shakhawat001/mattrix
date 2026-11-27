@@ -244,7 +244,7 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
     })
 
     it("counts events per type and per month, and finds the first and last", async () => {
-      const health = await getDataHealth(database.db, [appId], NOW)
+      const health = await getDataHealth(database.db, [appId], "UTC", NOW)
       expect(health.months).toEqual([
         "2025-03-01", "2025-04-01", "2025-05-01", "2025-06-01", "2025-07-01", "2025-08-01",
         "2025-09-01", "2025-10-01", "2025-11-01", "2025-12-01", "2026-01-01", "2026-02-01",
@@ -268,7 +268,7 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
     })
 
     it("finds the gaps a history that starts late leaves", async () => {
-      const [app] = (await getDataHealth(database.db, [appId], NOW)).apps
+      const [app] = (await getDataHealth(database.db, [appId], "UTC", NOW)).apps
       // b's uninstall and the one with no shop. f's second uninstall follows an install, and g's install comes first on the same instant.
       expect(app.uninstallsWithNoInstall).toBe(2)
       // b and e have events but never an install.
@@ -280,7 +280,7 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
     })
 
     it("finds subscriptions counted at $0 because no price came, and leaves a real free plan alone", async () => {
-      const [app] = (await getDataHealth(database.db, [appId], NOW)).apps
+      const [app] = (await getDataHealth(database.db, [appId], "UTC", NOW)).apps
       expect(app.subscriptionsWithNoPrice).toBe(1)
       expect(app.noPricePlans).toEqual([{ planHandle: "usage", count: 1 }])
     })
@@ -289,7 +289,7 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
       // a pays and is charged. Once excluded, the rebuild drops its subscription but its charge stays stored.
       await addExcludedShop(database.db, "a.myshopify.com", null)
       await rebuildStaleApps(database.db, NOW)
-      const [app] = (await getDataHealth(database.db, [appId], NOW)).apps
+      const [app] = (await getDataHealth(database.db, [appId], "UTC", NOW)).apps
       expect(app).toMatchObject({ chargedShopsWithNoSubscription: 1, excludedShops: 1, eventCount: 20 })
     })
 
@@ -298,16 +298,16 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
       // Only the uninstall with no shop is left. The shop with no events here is not counted as excluded.
       const expected = { uninstallsWithNoInstall: 1, shopsWithNoInstall: 0, subscriptionsWithNoCreation: 0, chargedShopsWithNoSubscription: 0, subscriptionsWithNoPrice: 0, noPricePlans: [], excludedShops: 4, eventCount: 20 }
       // Not rebuilt yet: the derived tables still have c's and h's subscriptions.
-      expect((await getDataHealth(database.db, [appId], NOW)).apps[0]).toMatchObject({ ...expected, dirty: true })
+      expect((await getDataHealth(database.db, [appId], "UTC", NOW)).apps[0]).toMatchObject({ ...expected, dirty: true })
       await rebuildStaleApps(database.db, NOW)
-      const [app] = (await getDataHealth(database.db, [appId], NOW)).apps
+      const [app] = (await getDataHealth(database.db, [appId], "UTC", NOW)).apps
       expect(app).toMatchObject({ ...expected, dirty: false })
       expect(app.eventTypes.find((t) => t.type === "CHARGE_RECURRING")!.count).toBe(3)
     })
 
     it("says when new events wait for a rebuild", async () => {
       await insertEvents(database.db, connectionId, [pe("RELATIONSHIP_INSTALLED", "2026-02-10T01:00:00Z", "z.myshopify.com")])
-      const [app] = (await getDataHealth(database.db, [appId], NOW)).apps
+      const [app] = (await getDataHealth(database.db, [appId], "UTC", NOW)).apps
       expect(app.dirty).toBe(true)
     })
 
@@ -326,7 +326,7 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
           ok: i === 6 ? null : i !== 5, eventsInserted: i, appsFound: 1, error: i === 5 ? "Partner API returned 502" : null, durationMs: i === 6 ? null : 4000,
         })
       }
-      const health = await getDataHealth(database.db, [appId], NOW)
+      const health = await getDataHealth(database.db, [appId], "UTC", NOW)
       expect(health.connections).toHaveLength(1)
       const [c] = health.connections
       expect(c).toMatchObject({
@@ -352,22 +352,22 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
       await insertEvents(database.db, otherConnection, [pe("RELATIONSHIP_INSTALLED", "2026-01-15", "q.myshopify.com", { appGid: "gid://shopify/App/2", appName: "Other" })])
       const [other] = await database.db.select({ id: apps.id }).from(apps).where(eq(apps.gid, "gid://shopify/App/2"))
 
-      const one = await getDataHealth(database.db, [appId], NOW)
+      const one = await getDataHealth(database.db, [appId], "UTC", NOW)
       expect(one.apps.map((a) => a.appId)).toEqual([appId])
       expect(one.connections.map((c) => c.label)).toEqual(["Test org"])
 
-      const both = await getDataHealth(database.db, [other.id, appId, "00000000-0000-4000-8000-000000000000"], NOW)
+      const both = await getDataHealth(database.db, [other.id, appId, "00000000-0000-4000-8000-000000000000"], "UTC", NOW)
       expect(both.apps.map((a) => a.appId)).toEqual([other.id, appId])
       // Never built, so not with the current rules either.
       expect(both.apps[0]).toMatchObject({ eventCount: 1, derivedAt: null, dirty: true, rulesOutdated: true, uninstallsWithNoInstall: 0, noPricePlans: [] })
       expect(both.connections.map((c) => c.label)).toEqual(["Test org", "Second org"])
 
-      expect(await getDataHealth(database.db, [], NOW)).toMatchObject({ apps: [], connections: [] })
+      expect(await getDataHealth(database.db, [], "UTC", NOW)).toMatchObject({ apps: [], connections: [] })
     })
 
     it("reads the same inside a read-only transaction", async () => {
-      const inside = await readOnly((tx) => getDataHealth(tx, [appId], NOW))
-      expect(inside).toEqual(await getDataHealth(database.db, [appId], NOW))
+      const inside = await readOnly((tx) => getDataHealth(tx, [appId], "UTC", NOW))
+      expect(inside).toEqual(await getDataHealth(database.db, [appId], "UTC", NOW))
     })
   })
 
@@ -377,7 +377,7 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
       return { newMrrCents: f.newMrrCents, expansionMrrCents: f.expansionMrrCents, contractionMrrCents: f.contractionMrrCents, churnedMrrCents: f.churnedMrrCents, newSubs: f.newSubs, canceledSubs: f.canceledSubs }
     }
     const moverTotals = async (ids: string[], range: Range) => {
-      const { totals } = await getMrrMovers(database.db, ids, range)
+      const { totals } = await getMrrMovers(database.db, ids, range, "UTC")
       return { newMrrCents: totals.newMrrCents, expansionMrrCents: totals.expansionMrrCents, contractionMrrCents: totals.contractionMrrCents, churnedMrrCents: totals.churnedMrrCents, newSubs: totals.newSubs, canceledSubs: totals.canceledSubs }
     }
 
@@ -388,7 +388,7 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
       })
 
       it("names each shop, what moved and why", async () => {
-        const { moves, totals } = await getMrrMovers(database.db, [appId], { from: "2026-01-01", to: "2026-02-10" })
+        const { moves, totals } = await getMrrMovers(database.db, [appId], { from: "2026-01-01", to: "2026-02-10" }, "UTC")
         expect(moves.map((m) => [m.shop, m.kind, m.date, m.amountCents, m.via ?? m.endReason])).toEqual([
           ["a.myshopify.com", "new", "2026-01-08", 2000, "trial"],
           ["e.myshopify.com", "new", "2026-01-10", 1000, "subscription"],
@@ -405,7 +405,7 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
 
       it("keeps to the range, and agrees with the rollup on it", async () => {
         const range = { from: "2026-01-20", to: "2026-02-10" }
-        const { moves, totals } = await getMrrMovers(database.db, [appId], range)
+        const { moves, totals } = await getMrrMovers(database.db, [appId], range, "UTC")
         expect(moves.map((m) => [m.shop, m.kind, m.amountCents])).toEqual([
           ["a.myshopify.com", "expansion", 1000],
           ["a.myshopify.com", "churned", 3000],
@@ -415,14 +415,14 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
       })
 
       it("returns nothing for no apps, or a range with no moves", async () => {
-        expect(await getMrrMovers(database.db, [], { from: "2026-01-01", to: "2026-02-10" })).toMatchObject({ moves: [], totals: { newMrrCents: 0, newSubs: 0 } })
-        expect((await getMrrMovers(database.db, [appId], { from: "2026-01-21", to: "2026-02-04" })).moves).toEqual([])
+        expect(await getMrrMovers(database.db, [], { from: "2026-01-01", to: "2026-02-10" }, "UTC")).toMatchObject({ moves: [], totals: { newMrrCents: 0, newSubs: 0 } })
+        expect((await getMrrMovers(database.db, [appId], { from: "2026-01-21", to: "2026-02-04" }, "UTC")).moves).toEqual([])
       })
 
       it("reads the same inside a read-only transaction", async () => {
         const range = { from: "2026-01-01", to: "2026-02-10" }
-        const inside = await readOnly((tx) => getMrrMovers(tx, [appId], range))
-        expect(inside).toEqual(await getMrrMovers(database.db, [appId], range))
+        const inside = await readOnly((tx) => getMrrMovers(tx, [appId], range, "UTC"))
+        expect(inside).toEqual(await getMrrMovers(database.db, [appId], range, "UTC"))
       })
     })
 
@@ -475,7 +475,7 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
 
       it("has every kind of move to add up", async () => {
         expect(ids).toHaveLength(4)
-        const { moves } = await getMrrMovers(database.db, ids, { from: "2025-11-01", to: today })
+        const { moves } = await getMrrMovers(database.db, ids, { from: "2025-11-01", to: today }, "UTC")
         const kinds = new Set(moves.map((m: MrrMove) => (m.kind === "new" ? `new ${m.via}` : m.kind === "churned" ? `churned ${m.endReason}` : m.kind)))
         for (const kind of ["new subscription", "new trial", "new resume", "new plan_change", "expansion", "contraction", "churned canceled", "churned uninstalled", "churned frozen", "churned replaced"]) {
           expect(kinds.has(kind), kind).toBe(true)
@@ -509,7 +509,7 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
       it("dates each move on the day the rollup counts it, on every day", async () => {
         for (const id of ids) {
           const range = { from: "2025-11-01", to: today }
-          const { moves } = await getMrrMovers(database.db, [id], range)
+          const { moves } = await getMrrMovers(database.db, [id], range, "UTC")
           const rows = await getDayRows(database.db, [id], range)
           for (const row of rows.filter((r) => r.date >= range.from)) {
             const day = moves.filter((m) => m.date === row.date)
@@ -524,18 +524,18 @@ describe.skipIf(!hasDatabase)("shared reads for pages and agents (Postgres)", ()
 
       it("counts moves dated after the rebuild on its last day, as the rollup does", async () => {
         const [edgeApp] = await database.db.select({ id: apps.id }).from(apps).where(eq(apps.gid, EDGE))
-        const last = await getMrrMovers(database.db, [edgeApp.id], { from: today, to: today })
+        const last = await getMrrMovers(database.db, [edgeApp.id], { from: today, to: today }, "UTC")
         expect(last.moves.map((m) => [m.shop, m.kind, m.amountCents])).toEqual([
           ["s8.myshopify.com", "new", 1500],
           ["s7.myshopify.com", "churned", 2000],
         ])
         expect(last.moves.every((m) => m.at.getTime() > now.getTime())).toBe(true)
-        expect((await getMrrMovers(database.db, [edgeApp.id], { from: addDays(today, -7), to: addDays(today, -1) })).moves.some((m) => m.shop === "s7.myshopify.com")).toBe(false)
+        expect((await getMrrMovers(database.db, [edgeApp.id], { from: addDays(today, -7), to: addDays(today, -1) }, "UTC")).moves.some((m) => m.shop === "s7.myshopify.com")).toBe(false)
       })
 
       it("explains a downgrade, a move to a free plan, a freeze and an upgrade sent as two events", async () => {
         const [edgeApp] = await database.db.select({ id: apps.id }).from(apps).where(eq(apps.gid, EDGE))
-        const { moves } = await getMrrMovers(database.db, [edgeApp.id], { from: "2026-01-01", to: today })
+        const { moves } = await getMrrMovers(database.db, [edgeApp.id], { from: "2026-01-01", to: today }, "UTC")
         const of = (shop: string) => moves.filter((m) => m.shop === shop).map((m) => [m.kind, m.amountCents, m.via ?? m.endReason ?? null])
         expect(of("s1.myshopify.com")).toEqual([["new", 3000, "subscription"], ["contraction", 2000, null]])
         expect(of("s2.myshopify.com")).toEqual([["new", 2000, "subscription"], ["churned", 2000, "replaced"], ["new", 2000, "plan_change"]])

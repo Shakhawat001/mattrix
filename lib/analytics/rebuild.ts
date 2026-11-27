@@ -1,7 +1,9 @@
 import { and, asc, eq, isNull, lt, or, sql } from "drizzle-orm"
 import type { Db } from "@/lib/db/client"
 import { apps, dailyMetrics, events, excludedShops, installs, subscriptions, trials } from "@/lib/db/schema"
+import { startOfDay, todayIn } from "@/lib/time-zone"
 import { DERIVE_VERSION, derive } from "./derive"
+import { readTimeZone } from "./queries"
 
 const CHUNK = 1000
 
@@ -10,15 +12,17 @@ async function insertChunked<T>(rows: T[], write: (chunk: T[]) => Promise<unknow
 }
 
 /**
- * Rebuilds one app's derived tables from its events, leaving out the excluded shops. Replaces
- * them in one transaction, so a page never sees half of a rebuild. Cheap enough to run in full
- * every time: it reads the events once and writes a few rows per shop and per day.
+ * Rebuilds one app's derived tables from its events, leaving out the excluded shops, with days
+ * counted in `timeZone`. Replaces them in one transaction, and records the zone in the same one,
+ * so a page never sees half of a rebuild or a rollup labeled with a zone it was not built in.
+ * Cheap enough to run in full every time: it reads the events once and writes a few rows per shop
+ * and per day.
  *
  * The app's row stays locked from before the events are read until the new rows are in. Whatever
  * marks the app dirty meanwhile (a sync storing events, a change to the excluded shops) waits for
  * the lock and marks it again afterwards, so it is rebuilt once more instead of being cleared unseen.
  */
-export async function rebuildApp(db: Db, appId: string, now: Date = new Date()): Promise<void> {
+export async function rebuildApp(db: Db, appId: string, timeZone: string, now: Date = new Date()): Promise<void> {
   await db.transaction(async (tx) => {
     const [app] = await tx.select({ id: apps.id }).from(apps).where(eq(apps.id, appId)).for("no key update")
     if (!app) return
@@ -45,7 +49,7 @@ export async function rebuildApp(db: Db, appId: string, now: Date = new Date()):
       // Then by id, so events at the same instant reach derive() in the same order on every rebuild.
       .orderBy(asc(events.occurredAt), asc(events.id))
 
-    const result = derive(raw, now)
+    const result = derive(raw, now, timeZone)
 
     await tx.delete(installs).where(eq(installs.appId, appId))
     await tx.delete(subscriptions).where(eq(subscriptions.appId, appId))
@@ -57,21 +61,32 @@ export async function rebuildApp(db: Db, appId: string, now: Date = new Date()):
     await insertChunked(result.trials, (chunk) => tx.insert(trials).values(chunk.map((r) => ({ ...r, appId }))))
     await insertChunked(result.daily, (chunk) => tx.insert(dailyMetrics).values(chunk.map((r) => ({ ...r, appId }))))
 
-    await tx.update(apps).set({ dirty: false, derivedAt: now, deriveVersion: DERIVE_VERSION }).where(eq(apps.id, appId))
+    await tx.update(apps).set({ dirty: false, derivedAt: now, deriveVersion: DERIVE_VERSION, derivedTimeZone: timeZone }).where(eq(apps.id, appId))
   })
 }
 
 /**
  * Rebuilds the apps that gained events, the ones not built since the start of today (so
- * every chart has a row for today even on a quiet day), and the ones built with an older
- * version of the rules.
+ * every chart has a row for today even on a quiet day), the ones built with an older version
+ * of the rules, and the ones built in another time zone than the one Settings names now. The
+ * zone is read once, so every app in one pass is built in the same one; if it changes
+ * meanwhile, the next pass catches up.
  */
 export async function rebuildStaleApps(db: Db, now: Date = new Date()): Promise<number> {
-  const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const timeZone = await readTimeZone(db)
+  const startOfToday = startOfDay(todayIn(timeZone, now), timeZone)
   const stale = await db
     .select({ id: apps.id })
     .from(apps)
-    .where(or(eq(apps.dirty, true), isNull(apps.derivedAt), lt(apps.derivedAt, startOfToday), lt(apps.deriveVersion, DERIVE_VERSION)))
-  for (const app of stale) await rebuildApp(db, app.id, now)
+    .where(
+      or(
+        eq(apps.dirty, true),
+        isNull(apps.derivedAt),
+        lt(apps.derivedAt, startOfToday),
+        lt(apps.deriveVersion, DERIVE_VERSION),
+        sql`${apps.derivedTimeZone} IS DISTINCT FROM ${timeZone}`,
+      ),
+    )
+  for (const app of stale) await rebuildApp(db, app.id, timeZone, now)
   return stale.length
 }

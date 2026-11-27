@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { StatGrid } from "@/components/app/kpi-card"
 import { PageHeader } from "@/components/app/page-header"
+import { RebuildNotice } from "@/components/app/rebuild-notice"
 import { OutcomeBar } from "@/components/charts/bar-list"
 import { ChartCard } from "@/components/charts/chart-card"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -22,10 +23,11 @@ export default async function TrialsPage({ params, searchParams }: { params: Pro
   const d = await loadDashboard(query, appId)
   const { params: p, rows, points, kpis, comparedKpis, caption } = d
   const gran = p.granularity
-  const trials = await getTrialStats(getDb(), [appId], p.range)
+  const trials = await getTrialStats(getDb(), [appId], p.range, p.timeZone)
 
   return (
     <>
+      <RebuildNotice />
       <PageHeader level={2} title="Trials" description={`Free trials and what became of them, ${formatRange(p.range)}. A trial converts when it ends with the subscription still open.`} />
 
       <StatGrid ids={["trialsStarted", "trialsConverted", "trialsCanceled", "trialConversion"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} />

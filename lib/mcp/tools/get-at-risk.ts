@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { FROZEN_DAYS_BACK, getAtRisk, TRIAL_DAYS_AHEAD } from "@/lib/analytics/at-risk"
+import { dayIn } from "@/lib/time-zone"
 import { atRiskMetricAnswer } from "../metrics"
 import { billing, count, days, envelope, instant, money } from "../output"
 import { APPS_INPUT, appList, sourceNotes } from "../scope"
@@ -34,7 +35,7 @@ export const getAtRiskTool = defineTool({
   async run(ctx, input) {
     const apps = await ctx.apps(input.app_ids)
     const limit = input.limit ?? DEFAULT_LIMIT
-    const risk = await ctx.read((db) => getAtRisk(db, apps.map((a) => a.id), ctx.now, limit))
+    const [risk, timeZone] = await Promise.all([ctx.read((db) => getAtRisk(db, apps.map((a) => a.id), ctx.now, limit)), ctx.timeZone()])
     const now = ctx.now.getTime()
     const { setToEnd, trialsEnding, frozen } = risk
 
@@ -54,7 +55,7 @@ export const getAtRiskTool = defineTool({
           ending_soonest: setToEnd.rows.map((r) => ({
             ...plan(r),
             cancel_scheduled_at: instant(r.scheduledAt),
-            cancel_effective_on: r.endsAt.toISOString().slice(0, 10),
+            cancel_effective_on: dayIn(r.endsAt, timeZone),
             days_left: days(Math.max(0, (r.endsAt.getTime() - now) / DAY_MS)),
           })),
         },
@@ -69,7 +70,7 @@ export const getAtRiskTool = defineTool({
           latest: frozen.rows.map((r) => ({ ...plan(r), frozen_at: instant(r.frozenAt), days_frozen: days(Math.max(0, (now - r.frozenAt.getTime()) / DAY_MS)) })),
         },
       },
-      { notes }
+      { timeZone, notes }
     )
   },
 })

@@ -8,10 +8,20 @@ const compactNumber = new Intl.NumberFormat("en-US", { notation: "compact", maxi
 
 export const NONE = "n/a"
 
-const dateTime = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" })
+const dateTimeFormats = new Map<string, Intl.DateTimeFormat>()
 
-/** "Nov 21, 2026, 14:03 UTC". Every time in the dashboard is UTC. */
-export const formatDateTime = (date: Date): string => `${dateTime.format(date)} UTC`
+/**
+ * "Nov 21, 2026, 20:03 GMT+6", or "Nov 21, 2026, 14:03 UTC": a moment on the clock of the
+ * dashboard's time zone, with the zone written after it so a time is never ambiguous.
+ */
+export function formatDateTime(date: Date, timeZone: string): string {
+  let format = dateTimeFormats.get(timeZone)
+  if (!format) {
+    format = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone, timeZoneName: "short" })
+    dateTimeFormats.set(timeZone, format)
+  }
+  return format.format(date)
+}
 
 /** `-0` (a loss of nothing) prints as "-$0" otherwise. */
 const clean = (n: number) => (Object.is(n, -0) ? 0 : n)

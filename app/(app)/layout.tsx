@@ -7,19 +7,19 @@ import { SiteHeader } from "@/components/app/site-header"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { requireSession } from "@/lib/auth/dal"
 import { earliestDate } from "@/lib/analytics/queries"
-import { todayUtc } from "@/lib/analytics/range"
-import { getApps } from "@/lib/analytics/scope"
+import { getApps, getTimeZone } from "@/lib/analytics/scope"
 import { appColors, swatchColor } from "@/lib/analytics/series"
 import { BRAND } from "@/lib/brand"
 import { getDb } from "@/lib/db/client"
 import { getEnv } from "@/lib/env"
+import { todayIn } from "@/lib/time-zone"
 
 // Everything behind the login. requireSession() is the real gate: the proxy only checks
 // that a cookie exists, so this is where the session is checked against the database.
 export default async function AppLayout({ children }: { children: ReactNode }) {
   await requireSession()
 
-  const all = await getApps()
+  const [all, timeZone] = await Promise.all([getApps(), getTimeZone()])
   const visible = all.filter((a) => !a.hidden)
   const colors = appColors(all)
   const apps: FilterApp[] = visible.map((a) => ({ id: a.id, label: a.label, color: swatchColor(colors, a.id) }))
@@ -32,8 +32,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         <AppSidebar variant="inset" apps={apps} brandName={BRAND.name} user={getEnv().user} />
         <SidebarInset className="min-w-0">
           <SiteHeader apps={apps} brandName={BRAND.name}>
-            <FilterBar apps={apps} today={todayUtc()} earliest={earliest} />
+            <FilterBar apps={apps} today={todayIn(timeZone)} earliest={earliest} />
           </SiteHeader>
+          {/* The notice for a time zone rebuild is rendered by each page (components/app/rebuild-notice.tsx), because this layout is not rendered again on navigation. */}
           {demo ? (
             <p className="border-b bg-muted px-4 py-2 text-center text-xs text-muted-foreground lg:px-6">
               You are looking at invented demo data. It is not from Shopify.{" "}

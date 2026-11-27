@@ -4,13 +4,15 @@ import { eq } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { z } from "zod"
-import { isDate, todayUtc } from "@/lib/analytics/range"
+import { readTimeZone } from "@/lib/analytics/queries"
+import { isDate } from "@/lib/analytics/range"
 import { clearSessionCookie } from "@/lib/auth/cookies"
 import { requireSession } from "@/lib/auth/dal"
 import { destroyAllSessions } from "@/lib/auth/sessions"
 import { getDb } from "@/lib/db/client"
-import { apps, connections } from "@/lib/db/schema"
+import { apps, connections, settings } from "@/lib/db/schema"
 import { encryptToken } from "@/lib/secrets"
+import { normalizeTimeZone, todayIn } from "@/lib/time-zone"
 
 // Every action starts with requireSession(): a Server Action is a public POST endpoint, so
 // being behind the login page protects nothing by itself. Input is validated before use, and
@@ -22,7 +24,8 @@ export type ActionState = { ok?: string; error?: string }
 const MAX_CONNECTIONS = 20
 const APP_GID = /^gid:\/\/shopify\/App\/\d+$/
 
-const connectionInput = z.object({
+/** `today` is today in the dashboard's time zone, the latest day the date picker offered. */
+const connectionInput = (today: string) => z.object({
   label: z.string().trim().min(1, "Give the connection a name.").max(60, "Keep the name under 60 characters."),
   partnerId: z.string().trim().regex(/^\d{1,20}$/, "The Partner ID is a number. You can find it in the address of your Partner Dashboard."),
   token: z
@@ -31,7 +34,7 @@ const connectionInput = z.object({
     .min(16, "That token looks too short.")
     .max(2048, "That token looks too long.")
     .regex(/^[\w.~+/=-]+$/, "A token has no spaces or other special characters."),
-  backfillFrom: z.string().refine((d) => isDate(d) && d >= "2012-01-01" && d <= todayUtc(), "Pick a real date between 2012 and today to read history from."),
+  backfillFrom: z.string().refine((d) => isDate(d) && d >= "2012-01-01" && d <= today, "Pick a real date between 2012 and today to read history from."),
   apiVersion: z.string().trim().regex(/^(\d{4}-\d{2}|unstable)$/, "An API version looks like 2026-07."),
   appGids: z.string().trim().max(4000).optional(),
 })
@@ -45,7 +48,8 @@ function fail(error: string): ActionState {
 export async function addConnection(_previous: ActionState, formData: FormData): Promise<ActionState> {
   await requireSession()
 
-  const parsed = connectionInput.safeParse({
+  const db = getDb()
+  const parsed = connectionInput(todayIn(await readTimeZone(db))).safeParse({
     label: formData.get("label"),
     partnerId: formData.get("partnerId"),
     token: formData.get("token"),
@@ -59,7 +63,6 @@ export async function addConnection(_previous: ActionState, formData: FormData):
   const appGids = (input.appGids ?? "").split(/[\s,]+/).filter(Boolean)
   if (appGids.some((g) => !APP_GID.test(g))) return fail("App IDs look like gid://shopify/App/123. Leave the box empty to read every app.")
 
-  const db = getDb()
   const existing = await db.select({ partnerId: connections.partnerId }).from(connections)
   if (existing.length >= MAX_CONNECTIONS) return fail(`That is the limit of ${MAX_CONNECTIONS} connections.`)
   if (existing.some((c) => c.partnerId === input.partnerId)) return fail("That Partner ID is already connected. One token covers every app in the organization.")
@@ -72,6 +75,8 @@ export async function addConnection(_previous: ActionState, formData: FormData):
     tokenHint: hint,
     apiVersion: input.apiVersion,
     appGids,
+    // A date, kept as midnight UTC of it and shown as that date again. History starts at most a
+    // few hours from the zone's own midnight, which matters nothing for a backfill.
     backfillFrom: new Date(`${input.backfillFrom}T00:00:00Z`),
     // The worker picks this up within a minute. A wrong token shows up as an error on the connection.
     syncRequestedAt: new Date(),
@@ -145,6 +150,27 @@ export async function updateApp(_previous: ActionState, formData: FormData): Pro
 
   revalidatePath("/", "layout")
   return { ok: "Saved." }
+}
+
+/**
+ * Picks the time zone days are counted in and times are shown in. The daily numbers are built
+ * in the old one until the worker rebuilds them on its next pass (within a minute, or after a sync
+ * that is running finishes): it rebuilds every app whose
+ * numbers were built in another zone, so nothing else is needed here.
+ */
+export async function updateTimeZone(_previous: ActionState, formData: FormData): Promise<ActionState> {
+  await requireSession()
+
+  const timeZone = normalizeTimeZone(formData.get("timeZone"))
+  if (!timeZone) return fail("Pick a time zone from the list.")
+
+  const db = getDb()
+  if (timeZone === (await readTimeZone(db))) return { ok: `Days already run midnight to midnight in ${timeZone}.` }
+  const updatedAt = new Date()
+  await db.insert(settings).values({ id: 1, timeZone, updatedAt }).onConflictDoUpdate({ target: settings.id, set: { timeZone, updatedAt } })
+
+  revalidatePath("/", "layout")
+  return { ok: `Saved. Days now run midnight to midnight in ${timeZone}, and the numbers are rebuilt that way. That usually takes under a minute, longer while a sync is running.` }
 }
 
 export async function signOutEverywhere(): Promise<void> {

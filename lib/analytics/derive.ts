@@ -1,13 +1,16 @@
 import { EVENT, LEGACY_EVENT_TYPES } from "@/lib/partner/query"
+import { dayIn, startOfDay } from "@/lib/time-zone"
+import { addDays } from "./range"
 
-// Turns one app's raw events into the facts the dashboard is built on. Pure: events
-// and a clock in, rows out, no database. tests/derive.test.ts pins every definition.
+// Turns one app's raw events into the facts the dashboard is built on. Pure: events, a
+// clock and the dashboard's time zone in, rows out, no database. tests/derive.test.ts pins every definition.
 //
 // What it makes:
 //   installs        one stay per install of a shop: installed, then uninstalled or still open
 //   subscriptions   one period per shop per plan and price (a plan change starts a new one)
 //   trials          what became of each free trial
-//   daily           one row per UTC day: what happened that day, and the stock at the end of it
+//   daily           one row per day in the dashboard's time zone: what happened that day, and the
+//                   stock at the end of it
 //
 // Where Shopify's events leave a choice, the choice is made here and written down. The main ones:
 //
@@ -17,9 +20,10 @@ import { EVENT, LEGACY_EVENT_TYPES } from "@/lib/partner/query"
 //   - A trial converts when it ends with the subscription still open. Shopify bills app charges
 //     on the merchant's own invoice date, which can be weeks after the trial ended, so the charge
 //     event is not waited for; an earlier charge converts it earlier.
-//   - A cancellation counts on the day it takes effect: `cancelEffectiveOn` when Shopify gives a
-//     later date, otherwise the moment of the event. The period keeps when the cancel was first
-//     scheduled and the day it takes effect, so a subscription set to end can be listed until then.
+//   - A cancellation counts on the day it takes effect: the start of the `cancelEffectiveOn` day
+//     (in the dashboard's time zone) when Shopify gives a later date, otherwise the moment of the
+//     event. The period keeps when the cancel was first scheduled and the day it takes effect, so a
+//     subscription set to end can be listed until then.
 //   - Subscription events carry no subscription id, so a plan change has to be recognized: a
 //     second subscription while one is open, a cancel (or a scheduled cancel) naming another plan
 //     moments after a new one began, or a cancel followed within minutes by a new subscription are
@@ -90,7 +94,7 @@ export type SubscriptionRow = {
   convertedAt: Date | null
   /** When Shopify first said this period is canceled from a later day. Null when no cancel was scheduled. */
   cancelScheduledAt: Date | null
-  /** The start of that UTC day. The period pays until then, and ends then unless something ends it first. */
+  /** The start of that day in the dashboard's time zone. The period pays until then, and ends then unless something ends it first. */
   cancelEffectiveAt: Date | null
 }
 
@@ -211,16 +215,20 @@ function changesPlan(p: Period, e: RawEvent): boolean {
   )
 }
 
-/** A Date scalar ("2026-02-10") or timestamp read as the start of that UTC day. */
-const startOfUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
-
 /** A cancel that takes effect on a later day. A later one moves the day; the time it was scheduled stays the first. */
 function scheduleCancel(p: Period, at: Date, effective: Date) {
   p.cancelScheduledAt ??= at
   p.cancelEffectiveAt = effective
 }
 
-export function derive(events: RawEvent[], now: Date): Derived {
+export function derive(events: RawEvent[], now: Date, timeZone: string): Derived {
+  /**
+   * Shopify's cancelEffectiveOn is a date with no time ("2026-02-10"), stored as midnight UTC of it.
+   * The cancellation takes effect as that day begins where the dashboard counts days, so it
+   * lands on the day Shopify names in any zone.
+   */
+  const startOfNamedDay = (date: Date) => startOfDay(date.toISOString().slice(0, 10), timeZone)
+
   // By time, then by event type (RANK), then in the order given: rebuildApp reads events by time
   // and then by id, so two events of the same rank at the same instant are always read alike.
   const sorted = events
@@ -442,7 +450,7 @@ export function derive(events: RawEvent[], now: Date): Derived {
         if (!s.sub) break
         // A cancel naming another plan, moments after a new one began, is the old subscription being replaced.
         if (!namesSamePlan(s.sub, e) && e.occurredAt.getTime() - s.sub.startedAt.getTime() <= REPLACE_WINDOW_MS) break
-        const effective = e.cancelEffectiveOn ? startOfUtcDay(e.cancelEffectiveOn) : null
+        const effective = e.cancelEffectiveOn ? startOfNamedDay(e.cancelEffectiveOn) : null
         if (effective && effective.getTime() > e.occurredAt.getTime()) scheduleCancel(s.sub, e.occurredAt, effective)
         else closePeriod(s, e.occurredAt, "canceled")
         break
@@ -452,7 +460,7 @@ export function derive(events: RawEvent[], now: Date): Derived {
         if (!s.sub || !e.cancelEffectiveOn) break
         // As with a cancel: one naming another plan, moments after a new one began, is for the plan it replaced.
         if (!namesSamePlan(s.sub, e) && e.occurredAt.getTime() - s.sub.startedAt.getTime() <= REPLACE_WINDOW_MS) break
-        const effective = startOfUtcDay(e.cancelEffectiveOn)
+        const effective = startOfNamedDay(e.cancelEffectiveOn)
         if (effective.getTime() > e.occurredAt.getTime()) scheduleCancel(s.sub, e.occurredAt, effective)
         else closePeriod(s, e.occurredAt, "canceled")
         break
@@ -498,7 +506,7 @@ export function derive(events: RawEvent[], now: Date): Derived {
     installs,
     subscriptions,
     trials,
-    daily: buildDaily({ sorted, installs, periods, trials, uninstallDates, inactiveUninstallDates, moneyEvents, now }),
+    daily: buildDaily({ sorted, installs, periods, trials, uninstallDates, inactiveUninstallDates, moneyEvents, now, timeZone }),
     orphanUninstalls,
     ignoredAfterUninstall,
   }
@@ -507,8 +515,6 @@ export function derive(events: RawEvent[], now: Date): Derived {
 // ---------------------------------------------------------------------------
 // Daily rollup
 // ---------------------------------------------------------------------------
-
-const utcMidnight = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
 
 /** When a period starts paying: its start, or its trial's conversion. Null when it never pays. */
 function paidFrom(p: Period): number | null {
@@ -535,13 +541,29 @@ function buildDaily(input: {
   inactiveUninstallDates: Date[]
   moneyEvents: RawEvent[]
   now: Date
+  timeZone: string
 }): DailyRow[] {
-  const { sorted, installs, periods, trials, uninstallDates, inactiveUninstallDates, moneyEvents, now } = input
+  const { sorted, installs, periods, trials, uninstallDates, inactiveUninstallDates, moneyEvents, now, timeZone } = input
   if (sorted.length === 0) return []
 
-  const firstMs = utcMidnight(sorted[0].occurredAt)
-  const length = Math.max(1, Math.floor((utcMidnight(now) - firstMs) / DAY_MS) + 1)
-  const at = (ms: number) => Math.min(length - 1, Math.max(0, Math.floor((utcMidnight(new Date(ms)) - firstMs) / DAY_MS)))
+  // Every day from the first event's to today's. An event after now goes on the last day.
+  const days = [dayIn(sorted[0].occurredAt, timeZone)]
+  const today = dayIn(now, timeZone)
+  for (let d = addDays(days[0], 1); d <= today; d = addDays(d, 1)) days.push(d)
+  const length = days.length
+  // Where each day starts. A day is not always 24 hours long (daylight saving), so an instant
+  // finds its day by searching these, which are the same boundaries the queries use.
+  const starts = days.map((d) => startOfDay(d, timeZone).getTime())
+  const at = (ms: number) => {
+    let lo = 0
+    let hi = length - 1
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1
+      if (starts[mid] <= ms) lo = mid
+      else hi = mid - 1
+    }
+    return lo
+  }
   const series = () => new Array<number>(length).fill(0)
 
   // Flows: what happened on each day.
@@ -657,7 +679,7 @@ function buildDaily(input: {
     run.trialSubs += s.trialSubs[d]
     run.trialMrr += s.trialMrr[d]
     rows.push({
-      date: new Date(firstMs + d * DAY_MS).toISOString().slice(0, 10),
+      date: days[d],
       installs: f.installs[d],
       reinstalls: f.reinstalls[d],
       uninstalls: f.uninstalls[d],

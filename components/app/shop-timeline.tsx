@@ -13,7 +13,7 @@ import { formatDateTime, formatInt, formatMoney } from "@/lib/format"
 const billed = (billingPeriod: string | null) => (billingPeriod === "ANNUAL" ? "yearly" : "monthly")
 
 /** The shop now: installed or not, its plan, its MRR, how often it installed, what it has paid. */
-export function ShopFacts({ standing, totals }: { standing: ShopStanding; totals: ShopTotals }) {
+export function ShopFacts({ standing, totals, timeZone }: { standing: ShopStanding; totals: ShopTotals; timeZone: string }) {
   const { plan } = standing
   const earned = [
     totals.netEarnedCents === null ? null : `${formatMoney(totals.netEarnedCents)} net earnings`,
@@ -23,14 +23,14 @@ export function ShopFacts({ standing, totals }: { standing: ShopStanding; totals
     {
       label: "Status",
       value: standing.installed === null ? "Unknown" : standing.installed ? "Installed" : "Uninstalled",
-      note: standing.since === null ? "No install or uninstall in the data" : `${standing.installed ? "Since" : "Left"} ${formatDateTime(standing.since)}`,
+      note: standing.since === null ? "No install or uninstall in the data" : `${standing.installed ? "Since" : "Left"} ${formatDateTime(standing.since, timeZone)}`,
     },
     {
       label: "Plan now",
       value: plan.status === "paying" ? `${plan.planHandle ?? "Unnamed plan"}, ${billed(plan.billingPeriod)}` : plan.status === "trial" ? "Free trial" : plan.status === "free" ? "Free" : "None",
       note:
         plan.status === "trial"
-          ? `Of ${plan.planHandle ?? "an unnamed plan"}, ends ${formatDateTime(plan.trialEndsAt)}`
+          ? `Of ${plan.planHandle ?? "an unnamed plan"}, ends ${formatDateTime(plan.trialEndsAt, timeZone)}`
           : plan.status === "free" && plan.planHandle
             ? `On ${plan.planHandle}, at no charge`
             : null,
@@ -40,7 +40,7 @@ export function ShopFacts({ standing, totals }: { standing: ShopStanding; totals
       value: formatMoney(standing.mrrCents),
       note: plan.status === "trial" ? `${formatMoney(plan.monthlyCents)} once the trial converts` : plan.status === "paying" && plan.billingPeriod === "ANNUAL" ? "A twelfth of the yearly price" : null,
     },
-    { label: "Installs", value: formatInt(standing.installs), note: standing.firstInstalledAt ? `First ${formatDateTime(standing.firstInstalledAt)}` : "None in the data" },
+    { label: "Installs", value: formatInt(standing.installs), note: standing.firstInstalledAt ? `First ${formatDateTime(standing.firstInstalledAt, timeZone)}` : "None in the data" },
     { label: "Charged in all", value: formatMoney(totals.chargedCents), note: earned.length ? earned.join(", ") : null },
   ]
 
@@ -66,7 +66,7 @@ export function ShopFacts({ standing, totals }: { standing: ShopStanding; totals
 const TONE = { loss: "destructive", money: "secondary", plain: "default" } as const
 
 /** The story, one row per event or trial step, oldest first. */
-export function TimelineCard({ rows, shown, total }: { rows: TimelineRow[]; shown: number; total: number }) {
+export function TimelineCard({ rows, shown, total, timeZone }: { rows: TimelineRow[]; shown: number; total: number; timeZone: string }) {
   return (
     <Card>
       <CardHeader>
@@ -81,7 +81,7 @@ export function TimelineCard({ rows, shown, total }: { rows: TimelineRow[]; show
           {rows.map((r) => (
             <li key={r.key} className="grid gap-x-6 gap-y-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[10.5rem_minmax(0,1fr)]">
               <time dateTime={r.at.toISOString()} className="text-xs text-muted-foreground tabular-nums sm:pt-0.5">
-                {formatDateTime(r.at)}
+                {formatDateTime(r.at, timeZone)}
               </time>
               <div className="flex min-w-0 flex-col gap-1.5">
                 <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -110,7 +110,7 @@ function TableCard({ title, description, empty, children }: { title: string; des
   )
 }
 
-export function StaysTable({ stays }: { stays: TimelineStay[] }) {
+export function StaysTable({ stays, timeZone }: { stays: TimelineStay[]; timeZone: string }) {
   return (
     <TableCard title="Stays" description="Each install, to its uninstall." empty={stays.length === 0 ? "No install of this shop is in the data." : null}>
       <Table>
@@ -126,8 +126,8 @@ export function StaysTable({ stays }: { stays: TimelineStay[] }) {
           {stays.map((s) => (
             <TableRow key={`${s.seq}-${s.installedAt.getTime()}`}>
               <TableCell className="tabular-nums">{formatInt(s.seq)}</TableCell>
-              <TableCell className="text-muted-foreground tabular-nums">{formatDateTime(s.installedAt)}</TableCell>
-              <TableCell className="text-muted-foreground tabular-nums">{s.uninstalledAt ? formatDateTime(s.uninstalledAt) : "Still installed"}</TableCell>
+              <TableCell className="text-muted-foreground tabular-nums">{formatDateTime(s.installedAt, timeZone)}</TableCell>
+              <TableCell className="text-muted-foreground tabular-nums">{s.uninstalledAt ? formatDateTime(s.uninstalledAt, timeZone) : "Still installed"}</TableCell>
               <TableCell className="max-w-56 truncate text-muted-foreground" title={s.reason ?? undefined}>
                 {s.uninstalledAt ? (reasonsLabel(s.reason) ?? "No reason given") : ""}
               </TableCell>
@@ -141,7 +141,7 @@ export function StaysTable({ stays }: { stays: TimelineStay[] }) {
 
 const END_REASON: Record<string, string> = { canceled: "Canceled", uninstalled: "Uninstalled", frozen: "Frozen", replaced: "Plan changed" }
 
-export function PeriodsTable({ periods }: { periods: TimelineSubscription[] }) {
+export function PeriodsTable({ periods, timeZone }: { periods: TimelineSubscription[]; timeZone: string }) {
   return (
     <TableCard
       title="Subscription periods"
@@ -161,8 +161,8 @@ export function PeriodsTable({ periods }: { periods: TimelineSubscription[] }) {
         <TableBody>
           {periods.map((p) => (
             <TableRow key={`${p.startedAt.getTime()}-${p.endedAt?.getTime() ?? "open"}`}>
-              <TableCell className="text-muted-foreground tabular-nums">{formatDateTime(p.startedAt)}</TableCell>
-              <TableCell className="text-muted-foreground tabular-nums">{p.endedAt ? formatDateTime(p.endedAt) : "Still open"}</TableCell>
+              <TableCell className="text-muted-foreground tabular-nums">{formatDateTime(p.startedAt, timeZone)}</TableCell>
+              <TableCell className="text-muted-foreground tabular-nums">{p.endedAt ? formatDateTime(p.endedAt, timeZone) : "Still open"}</TableCell>
               <TableCell className="text-muted-foreground">{p.endReason ? (END_REASON[p.endReason] ?? p.endReason) : ""}</TableCell>
               <TableCell>{`${p.planHandle ?? "Unnamed plan"}, ${billed(p.billingPeriod)}`}</TableCell>
               <TableCell className="text-right tabular-nums">{formatMoney(p.monthlyCents)}</TableCell>
@@ -176,7 +176,7 @@ export function PeriodsTable({ periods }: { periods: TimelineSubscription[] }) {
 
 const OUTCOME: Record<TimelineTrial["outcome"], string> = { converted: "Converted", canceled: "Canceled", open: "Running" }
 
-export function TrialsTable({ trials }: { trials: TimelineTrial[] }) {
+export function TrialsTable({ trials, timeZone }: { trials: TimelineTrial[]; timeZone: string }) {
   return (
     <TableCard title="Free trials" description="A trial converts when it ends with the subscription still open." empty={trials.length === 0 ? "This shop has had no free trial." : null}>
       <Table>
@@ -191,8 +191,8 @@ export function TrialsTable({ trials }: { trials: TimelineTrial[] }) {
         <TableBody>
           {trials.map((t) => (
             <TableRow key={t.startedAt.getTime()}>
-              <TableCell className="text-muted-foreground tabular-nums">{formatDateTime(t.startedAt)}</TableCell>
-              <TableCell className="text-muted-foreground tabular-nums">{formatDateTime(t.resolvedAt ?? t.endsAt)}</TableCell>
+              <TableCell className="text-muted-foreground tabular-nums">{formatDateTime(t.startedAt, timeZone)}</TableCell>
+              <TableCell className="text-muted-foreground tabular-nums">{formatDateTime(t.resolvedAt ?? t.endsAt, timeZone)}</TableCell>
               <TableCell className="text-right tabular-nums">{formatInt(t.trialDays)}</TableCell>
               <TableCell>{OUTCOME[t.outcome] ?? t.outcome}</TableCell>
             </TableRow>

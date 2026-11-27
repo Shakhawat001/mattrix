@@ -14,7 +14,7 @@ export function earningsReadable(c: Pick<ConnectionOverview, "isDemo" | "earning
 }
 
 /** list_apps's answer, from the apps the caller may see and every connection. */
-export function describeApps(apps: AppInfo[], connections: ConnectionOverview[]) {
+export function describeApps(apps: AppInfo[], connections: ConnectionOverview[], timeZone: string) {
   const notes: string[] = []
   for (const c of connections) {
     if (c.isDemo) notes.push(`${c.label} holds demo data made up by the seed-demo command. None of it is real.`)
@@ -54,7 +54,7 @@ export function describeApps(apps: AppInfo[], connections: ConnectionOverview[])
         billing_events_error: c.legacyError,
       })),
     },
-    { notes }
+    { timeZone, notes }
   )
 }
 
@@ -69,7 +69,7 @@ export const listAppsTool = defineTool({
   ].join(" "),
   input: z.object({}),
   async run(ctx) {
-    const [apps, connections] = await Promise.all([ctx.apps(), ctx.read((db) => getConnections(db))])
-    return describeApps(apps, connections)
+    const [apps, connections, timeZone] = await Promise.all([ctx.apps(), ctx.read((db) => getConnections(db)), ctx.timeZone()])
+    return describeApps(apps, connections, timeZone)
   },
 })

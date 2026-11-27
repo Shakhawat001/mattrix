@@ -4,9 +4,9 @@ import { FROZEN_DAYS_BACK, TRIAL_DAYS_AHEAD, type AtRisk, type AtRiskList } from
 import { AT_RISK_METRICS, type AtRiskMetricId } from "@/lib/analytics/metrics-registry"
 import { formatDate } from "@/lib/analytics/range"
 import { formatInt, formatMoney, formatValue } from "@/lib/format"
+import { dayIn } from "@/lib/time-zone"
 import { MetricHint } from "./metric-hint"
 
-const day = (d: Date) => formatDate(d.toISOString().slice(0, 10))
 const billed = (billingPeriod: string | null) => (billingPeriod === "ANNUAL" ? "yearly" : "monthly")
 const plural = (n: number, word: string) => `${formatInt(n)} ${n === 1 ? word : `${word}s`}`
 
@@ -21,7 +21,8 @@ type Item = { appId: string; shop: string; monthlyCents: number; detail: string 
  * trials ending this week and the frozen subscriptions, each with its total and its first shops,
  * linked to their pages. Read for now, whatever the date range.
  */
-export function AtRiskCard({ data, apps = [], carry }: { data: AtRisk; apps?: { id: string; label: string }[]; carry: string }) {
+export function AtRiskCard({ data, apps = [], carry, timeZone }: { data: AtRisk; apps?: { id: string; label: string }[]; carry: string; timeZone: string }) {
+  const day = (d: Date) => formatDate(dayIn(d, timeZone))
   const { setToEnd, trialsEnding, frozen } = data
   // On a page with more than one app, each line says which app it is.
   const labels = new Map(apps.length > 1 ? apps.map((a) => [a.id, a.label]) : [])

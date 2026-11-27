@@ -3,6 +3,7 @@ import { ChurnByCause } from "@/components/app/churn-by-cause"
 import { StatGrid } from "@/components/app/kpi-card"
 import { PageHeader } from "@/components/app/page-header"
 import { WinBackCard } from "@/components/app/win-back"
+import { RebuildNotice } from "@/components/app/rebuild-notice"
 import { BarList } from "@/components/charts/bar-list"
 import { ChartCard } from "@/components/charts/chart-card"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -16,6 +17,7 @@ import { readers, totals } from "@/lib/analytics/view"
 import { getWinBack } from "@/lib/analytics/win-back"
 import { getDb } from "@/lib/db/client"
 import { requireSession } from "@/lib/auth/dal"
+import { dayIn } from "@/lib/time-zone"
 
 export const metadata: Metadata = { title: "Churn" }
 
@@ -26,10 +28,11 @@ export default async function ChurnPage({ params, searchParams }: { params: Prom
   const { params: p, rows, points, kpis, comparedKpis, caption } = d
   const gran = p.granularity
   const db = getDb()
-  const [reasons, comments, winBack] = await Promise.all([getReasons(db, [appId], p.range), getExplanations(db, [appId], p.range, 20), getWinBack(db, p.appIds, p.range)])
+  const [reasons, comments, winBack] = await Promise.all([getReasons(db, [appId], p.range, p.timeZone), getExplanations(db, [appId], p.range, p.timeZone, 20), getWinBack(db, p.appIds, p.range, p.timeZone)])
 
   return (
     <>
+      <RebuildNotice />
       <PageHeader level={2} title="Churn" description={`Why shops leave, ${formatRange(p.range)}.`} />
 
       <StatGrid ids={["uninstalls", "uninstallRate", "canceledSubs", "churnedMrr"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} />
@@ -64,7 +67,7 @@ export default async function ChurnPage({ params, searchParams }: { params: Prom
                 <li key={`${c.shop}-${c.at.getTime()}-${i}`} className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0">
                   <p className="text-sm leading-relaxed">&ldquo;{c.text}&rdquo;</p>
                   <p className="text-xs text-muted-foreground">
-                    {c.shop}, {formatDate(c.at.toISOString().slice(0, 10))}
+                    {c.shop}, {formatDate(dayIn(c.at, p.timeZone))}
                     {c.reason ? `, ${c.reason.split(",").map((r) => reasonLabel(r.trim())).join(", ")}` : ""}
                   </p>
                 </li>
@@ -74,7 +77,7 @@ export default async function ChurnPage({ params, searchParams }: { params: Prom
         </CardContent>
       </Card>
 
-      <WinBackCard data={winBack} />
+      <WinBackCard data={winBack} timeZone={p.timeZone} />
     </>
   )
 }

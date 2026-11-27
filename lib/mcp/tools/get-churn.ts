@@ -39,12 +39,12 @@ export const getChurnTool = defineTool({
     const returnsLimit = input.returns_limit ?? DEFAULT_RETURNS
     const [numbers, reasons, comments, life, winBack] = await ctx.read((db) =>
       Promise.all([
-        readRangeNumbers(db, appIds, range, compared),
-        getReasons(db, appIds, range),
+        readRangeNumbers(db, appIds, range, compared, scope.timeZone),
+        getReasons(db, appIds, range, scope.timeZone),
         // One more than asked, to tell whether there are more.
-        getExplanations(db, appIds, range, commentsLimit + 1),
-        getLifetimeStats(db, appIds, range),
-        getWinBack(db, appIds, range, returnsLimit),
+        getExplanations(db, appIds, range, scope.timeZone, commentsLimit + 1),
+        getLifetimeStats(db, appIds, range, scope.timeZone),
+        getWinBack(db, appIds, range, scope.timeZone, returnsLimit),
       ])
     )
 
@@ -85,7 +85,7 @@ export const getChurnTool = defineTool({
           latest_returns: winBack.recent.map((r) => ({ app_id: r.appId, shop: r.shop, left_at: instant(r.leftAt), back_at: instant(r.backAt), after: days(r.days) })),
         },
       },
-      { range, compared, notes }
+      { timeZone: scope.timeZone, range, compared, notes }
     )
   },
 })

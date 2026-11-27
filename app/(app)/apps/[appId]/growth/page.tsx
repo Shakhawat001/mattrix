@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { ExportLink } from "@/components/app/export-link"
 import { StatGrid } from "@/components/app/kpi-card"
 import { PageHeader } from "@/components/app/page-header"
+import { RebuildNotice } from "@/components/app/rebuild-notice"
 import { BarList } from "@/components/charts/bar-list"
 import { ChartCard } from "@/components/charts/chart-card"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,7 +24,7 @@ export default async function GrowthPage({ params, searchParams }: { params: Pro
   const d = await loadDashboard(query, appId)
   const { params: p, rows, points, kpis, comparedKpis, caption, comparison } = d
   const gran = p.granularity
-  const life = await getLifetimeStats(getDb(), [appId], p.range)
+  const life = await getLifetimeStats(getDb(), [appId], p.range, p.timeZone)
 
   // Cumulative counts become the shops that left within each span.
   const buckets = [
@@ -35,6 +36,7 @@ export default async function GrowthPage({ params, searchParams }: { params: Pro
 
   return (
     <>
+      <RebuildNotice />
       <PageHeader
         level={2}
         title="Growth"

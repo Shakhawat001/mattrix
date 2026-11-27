@@ -1,4 +1,7 @@
-// Date ranges, as UTC calendar days written "YYYY-MM-DD", both ends included.
+// Date ranges, as calendar days written "YYYY-MM-DD", both ends included. The days are days in
+// the dashboard's time zone, but nothing here needs to know which: this is arithmetic on the
+// strings, with UTC used only as a calendar to count on. Turning a day into instants, or an
+// instant into a day, is lib/time-zone.ts's job, and today comes from there too.
 // Everything the dashboard shows is for a range like this, picked freely or from a preset.
 
 const DAY_MS = 86_400_000
@@ -11,7 +14,6 @@ export type Granularity = "day" | "week" | "month"
 export const toMs = (date: string) => Date.parse(`${date}T00:00:00Z`)
 export const fromMs = (ms: number) => new Date(ms).toISOString().slice(0, 10)
 export const addDays = (date: string, days: number) => fromMs(toMs(date) + days * DAY_MS)
-export const todayUtc = (now: Date = new Date()) => now.toISOString().slice(0, 10)
 export const dayCount = (range: Range) => Math.round((toMs(range.to) - toMs(range.from)) / DAY_MS) + 1
 
 /** A real calendar day. "2026-13-45" and "2026-02-30" are not, and must not throw. */

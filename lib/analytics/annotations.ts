@@ -6,13 +6,13 @@ import { formatDate, fromMs, isDate, type Range } from "./range"
 
 // Annotations: a day marked with a short label, for one app or for every app, so the charts
 // explain themselves later: a price change, a release, an App Store feature, an ad campaign.
-// Days are UTC, like every other date here.
+// Days are days in the dashboard's time zone, like every other date here.
 
 export type Annotation = {
   id: string
   /** The app it is about, or null for every app. */
   appId: string | null
-  /** A UTC day, YYYY-MM-DD. */
+  /** A day in the dashboard's time zone, YYYY-MM-DD. */
   date: string
   label: string
   note: string | null

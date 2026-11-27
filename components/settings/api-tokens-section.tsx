@@ -3,20 +3,22 @@ import { ApiTokenManager, NewTokenProvider, type ApiTokenView } from "@/componen
 import { ConnectAi } from "@/components/settings/connect-ai"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatDate } from "@/lib/analytics/range"
+import { getTimeZone } from "@/lib/analytics/scope"
 import { MAX_ACTIVE_API_TOKENS, listApiTokens } from "@/lib/auth/api-tokens"
 import { requireSession } from "@/lib/auth/dal"
 import { getDb } from "@/lib/db/client"
 import { getEnv } from "@/lib/env"
 import { formatAgo } from "@/lib/format"
 import { endpointUrl } from "@/lib/mcp/connect"
-
-const day = (date: Date) => formatDate(date.toISOString().slice(0, 10))
+import { dayIn } from "@/lib/time-zone"
 
 /** The API tokens part of Settings, with the steps to connect an AI. It reads the tokens itself, so it checks the session itself. */
 export async function ApiTokensSection() {
   await requireSession()
   const endpoint = endpointUrl(await headers(), getEnv())
   const now = new Date()
+  const timeZone = await getTimeZone()
+  const day = (date: Date) => formatDate(dayIn(date, timeZone))
   const tokens: ApiTokenView[] = (await listApiTokens(getDb())).map((t) => {
     const expired = t.expiresAt !== null && t.expiresAt.getTime() <= now.getTime()
     return {

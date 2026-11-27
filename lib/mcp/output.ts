@@ -6,9 +6,11 @@ import { formatDays, formatInt, formatMoney, formatPercent } from "@/lib/format"
 
 // How every tool writes its answer. The rules, for whoever adds a tool:
 //
-// - Return envelope(data, { range, notes }): the range when the tool has one, that every time is
-//   UTC, and the caveats an agent needs before it reads the data.
-// - Field names are snake_case. A day is "YYYY-MM-DD" (UTC); an instant is ISO 8601 ending in Z.
+// - Return envelope(data, { timeZone, range, notes }): the range when the tool has one, the time
+//   zone its days are days in (the dashboard's, ctx.timeZone()), and the caveats an agent needs
+//   before it reads the data.
+// - Field names are snake_case. A day is "YYYY-MM-DD" in the dashboard's time zone; an instant is
+//   ISO 8601 in UTC, ending in Z.
 // - Money is money(cents), a percentage percent(ratio), a count count(n), a duration days(n). Each
 //   pairs the exact number with the text the dashboard shows for it. A figure with nothing to divide
 //   by is null, never 0 and never the string "n/a".
@@ -87,7 +89,7 @@ export const NOTES = {
 /** How the tools write numbers. get_definitions and the definitions resource show these to agents. */
 export const OUTPUT_RULES: readonly string[] = [
   "Every answer is JSON: range (when the tool has one), timezone, notes, then data. Read the notes before drawing conclusions.",
-  "Every time is UTC. A day is written YYYY-MM-DD, an instant as ISO 8601 ending in Z, and a range includes both of its end days.",
+  "A day is written YYYY-MM-DD and is a day in the time zone the answer names (the dashboard's, set in its Settings). An instant is ISO 8601 in UTC, ending in Z. A range includes both of its end days.",
   "Money is { cents, formatted }: cents is the exact amount in US cents, formatted is how the dashboard writes it.",
   "A percentage is { ratio, formatted }: a ratio of 0.25 is 25%. A count is { count, formatted } and a duration { days, formatted }.",
   "null means there was nothing to divide by (the dashboard shows n/a). It never means zero.",
@@ -99,16 +101,17 @@ export type Envelope<T> = {
   range?: Range
   /** The range the figures are compared with, when the tool compares. */
   compared_range?: Range
-  timezone: "UTC"
+  /** The IANA time zone the answer's days are days in, such as Asia/Dhaka or UTC. */
+  timezone: string
   notes: string[]
   data: T
 }
 
-export function envelope<T>(data: T, options: { range?: Range | null; compared?: Range | null; notes?: readonly string[] } = {}): Envelope<T> {
+export function envelope<T>(data: T, options: { timeZone: string; range?: Range | null; compared?: Range | null; notes?: readonly string[] }): Envelope<T> {
   return {
     ...(options.range ? { range: { from: options.range.from, to: options.range.to } } : {}),
     ...(options.compared ? { compared_range: { from: options.compared.from, to: options.compared.to } } : {}),
-    timezone: "UTC",
+    timezone: options.timeZone,
     notes: [...new Set(options.notes ?? [])],
     data,
   }

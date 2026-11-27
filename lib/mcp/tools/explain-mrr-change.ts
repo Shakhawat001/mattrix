@@ -52,7 +52,7 @@ export const explainMrrChangeTool = defineTool({
     const scope = await readScope(ctx, input)
     const { range } = scope
     const limit = input.limit ?? DEFAULT_LIMIT
-    const [numbers, movers] = await ctx.read((db) => Promise.all([readRangeNumbers(db, scope.appIds, range, null), getMrrMovers(db, scope.appIds, range)]))
+    const [numbers, movers] = await ctx.read((db) => Promise.all([readRangeNumbers(db, scope.appIds, range, null, scope.timeZone), getMrrMovers(db, scope.appIds, range, scope.timeZone)]))
     const k = numbers.kpis
 
     let cut = false
@@ -69,7 +69,7 @@ export const explainMrrChangeTool = defineTool({
     if (cut) notes.push(`Each list holds the ${limit} largest moves of its movement, and moves counts them all. Ask for up to ${MOST}, or a shorter range, to see more.`)
     return envelope(
       { apps: appList(scope.apps), mrr_at_start: money(k.mrrStart), mrr_at_end: money(k.mrr), net_new_mrr: money(k.netNewMrr), movements },
-      { range, notes }
+      { timeZone: scope.timeZone, range, notes }
     )
   },
 })

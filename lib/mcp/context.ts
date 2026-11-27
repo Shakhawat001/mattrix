@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm"
-import { listApps, type AppInfo } from "@/lib/analytics/queries"
+import { listApps, readTimeZone, type AppInfo } from "@/lib/analytics/queries"
 import type { ApiCaller } from "@/lib/auth/api-tokens"
 import type { Db, Queryable } from "@/lib/db/client"
 import { events } from "@/lib/db/schema"
@@ -20,6 +20,8 @@ export type McpContext = {
   now: Date
   /** Runs fn in a read-only transaction whose statements stop after 15 seconds. Every database read a tool makes goes through here. */
   read<T>(fn: (db: Queryable) => Promise<T>): Promise<T>
+  /** The dashboard's time zone, from Settings: the days of every answer are days there. Read once per request. */
+  timeZone(): Promise<string>
   /** The apps the caller may read: those not hidden, as on the dashboard. Given ids, exactly those apps, or a ToolError naming any that are not among them. */
   apps(ids?: readonly string[]): Promise<AppInfo[]>
   /** The domain of a shop given as input: its alias for a token that hides domains, otherwise the domain. Null when no shop of these apps matches. */
@@ -44,6 +46,7 @@ export function createContext(options: { db: Db; secret: string; token: ApiCalle
   const read = <T>(fn: (db: Queryable) => Promise<T>) => readOnly(db, fn)
   const aliasOf = (domain: string) => shopAlias(secret, domain)
   let visible: Promise<AppInfo[]> | undefined
+  let zone: Promise<string> | undefined
 
   return {
     token,
@@ -51,6 +54,11 @@ export function createContext(options: { db: Db; secret: string; token: ApiCalle
     now: options.now ?? new Date(),
     read,
     aliasOf,
+
+    timeZone() {
+      zone ??= read((q) => readTimeZone(q))
+      return zone
+    },
 
     async apps(ids) {
       visible ??= read((q) => listApps(q)).then((all) => all.filter((a) => !a.hidden))

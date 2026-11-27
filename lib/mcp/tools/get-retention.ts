@@ -42,8 +42,8 @@ export const getRetentionTool = defineTool({
     const { appIds, range, compared } = scope
     // Weeks unless the dashboard would chart the range by month: a day's worth of installs is too few to read a rate from.
     const unit = input.cohort_by ?? (autoGranularity(range) === "month" ? "month" : "week")
-    const [numbers, stays, revenue] = await ctx.read((db) => Promise.all([readRangeNumbers(db, appIds, range, compared), getStays(db, appIds, range), getRevenueCohorts(db, appIds, range, ctx.now, PERIODS)]))
-    const installCohorts: CohortRow[] = cohortRetention(stays, unit, ctx.now, PERIODS)
+    const [numbers, stays, revenue] = await ctx.read((db) => Promise.all([readRangeNumbers(db, appIds, range, compared, scope.timeZone), getStays(db, appIds, range, scope.timeZone), getRevenueCohorts(db, appIds, range, scope.timeZone, ctx.now, PERIODS)]))
+    const installCohorts: CohortRow[] = cohortRetention(stays, unit, ctx.now, scope.timeZone, PERIODS)
 
     const metrics = RETENTION.map((id) => metricAnswer(id, numbers.kpis, numbers.compared))
     const r = numbers.retention
@@ -81,7 +81,7 @@ export const getRetentionTool = defineTool({
           })),
         },
       },
-      { range, compared, notes }
+      { timeZone: scope.timeZone, range, compared, notes }
     )
   },
 })

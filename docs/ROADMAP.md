@@ -20,7 +20,7 @@ What we build next, in order. Written 24 November 2026. Tick an item in the same
 - A change to how numbers are derived bumps `DERIVE_VERSION`, so every app is rebuilt on the next worker run.
 - A new number goes into `lib/analytics/metrics-registry.ts` first, then `pnpm docs:metrics`.
 - A change to how a number is computed needs a test with a history worked out by hand.
-- Money is cents. Days are UTC. Nothing to divide by is null, shown as n/a.
+- Money is cents. Days are days in the dashboard's time zone (Settings; `lib/time-zone.ts` does every conversion). Nothing to divide by is null, shown as n/a.
 - Read-only toward Shopify: queries, never mutations. Every new Partner API query is checked against the schema of the version it targets before it ships, because one unknown field fails the whole sync.
 - Never log a token, a password or a session.
 - A change to one compose file goes into both (`compose.yaml`, `compose.coolify.yaml`). New settings are optional with safe defaults, so the live instance keeps running without changes.
@@ -95,7 +95,7 @@ What we build next, in order. Written 24 November 2026. Tick an item in the same
 - [x] `/api/mcp` on the web container: official TypeScript SDK v2, MCP spec 2026-07-28 (stateless Streamable HTTP), bearer token.
 - [x] Every tool runs in a read-only database transaction with a short statement timeout. A rate limit per token. A log of every call.
 - [ ] Tools: `list_apps`, `get_metrics`, `get_timeseries`, `explain_mrr_change`, `get_retention`, `get_churn`, `get_trials`, `list_shops`, `get_shop_timeline`, `list_events`, `get_data_health`, `get_definitions`. Then `get_at_risk` and `list_annotations` once those features land.
-- [ ] Every answer states its range, that days are UTC, and its caveats. Merchant-written text is marked as untrusted. Results are capped and paged.
+- [ ] Every answer states its range, the time zone its days are in, and its caveats. Merchant-written text is marked as untrusted. Results are capped and paged.
 - [x] A resource with the metric definitions, and prompts for a weekly review and a churn investigation.
 
 ### 2.4 Docs

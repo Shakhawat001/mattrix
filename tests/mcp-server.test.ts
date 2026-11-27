@@ -22,7 +22,7 @@ vi.mock("@/lib/mcp/tools", async () => {
       run: async () =>
         envelope(
           { rows: [{ shop: "acme.myshopify.com", merchant_text_untrusted: "We closed acme.myshopify.com." }], last_error: "Shop beta.myshopify.com could not be read." },
-          { notes: ["Read Beta.MyShopify.com again."] }
+          { timeZone: "UTC", notes: ["Read Beta.MyShopify.com again."] }
         ),
     }),
     refusingTool: defineTool({

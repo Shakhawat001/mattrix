@@ -32,8 +32,8 @@ const plan = (planHandle: string, monthlyCents: number, billingPeriod = "EVERY_3
 
 /** The moves of a history, in time order, as the database read hands them over. */
 function movesOf(events: RawEvent[], now = NOW): MrrMove[] {
-  const d = derive(events, now)
-  return movesFromPeriods("app", d.subscriptions, d.daily.at(-1)?.date ?? null).sort(
+  const d = derive(events, now, "UTC")
+  return movesFromPeriods("app", d.subscriptions, d.daily.at(-1)?.date ?? null, "UTC").sort(
     (a, b) => a.at.getTime() - b.at.getTime() || (a.shop < b.shop ? -1 : a.shop > b.shop ? 1 : 0) || (a.kind === "churned" ? -1 : b.kind === "churned" ? 1 : 0),
   )
 }
@@ -78,10 +78,10 @@ describe("the shops behind each MRR movement", () => {
   })
 
   it("gives the same moves whatever order the periods come in", () => {
-    const d = derive(history, NOW)
+    const d = derive(history, NOW, "UTC")
     const key = (m: MrrMove) => `${m.at.toISOString()} ${m.shop} ${m.kind} ${m.amountCents}`
-    const forward = movesFromPeriods("app", d.subscriptions, "2026-02-10").map(key).sort()
-    const backward = movesFromPeriods("app", [...d.subscriptions].reverse(), "2026-02-10").map(key).sort()
+    const forward = movesFromPeriods("app", d.subscriptions, "2026-02-10", "UTC").map(key).sort()
+    const backward = movesFromPeriods("app", [...d.subscriptions].reverse(), "2026-02-10", "UTC").map(key).sort()
     expect(backward).toEqual(forward)
   })
 
@@ -158,7 +158,7 @@ describe("the shops behind each MRR movement", () => {
     const events = [ev("SUBSCRIPTION_CREATED", "2026-01-01", "x.myshopify.com", monthly(2000)), ev("SUBSCRIPTION_CANCELED", "2026-03-01", "x.myshopify.com")]
     const moves = movesOf(events)
     expect(moves[1]).toMatchObject({ kind: "churned", date: "2026-02-10", at: at("2026-03-01") })
-    expect(derive(events, NOW).daily.at(-1)).toMatchObject({ date: "2026-02-10", churnedMrrCents: 2000 })
+    expect(derive(events, NOW, "UTC").daily.at(-1)).toMatchObject({ date: "2026-02-10", churnedMrrCents: 2000 })
   })
 
   it("adds up to the daily rollup on every day of generated histories", () => {
@@ -166,9 +166,9 @@ describe("the shops behind each MRR movement", () => {
     for (let seed = 1; seed <= 300; seed++) {
       const now = new Date(Date.UTC(2026, 3, 1, 15))
       const events = randomHistory(seed, now)
-      const d = derive(events, now)
+      const d = derive(events, now, "UTC")
       const periods = shuffle(d.subscriptions, seed)
-      const moves = movesFromPeriods("app", periods, d.daily.at(-1)?.date ?? null)
+      const moves = movesFromPeriods("app", periods, d.daily.at(-1)?.date ?? null, "UTC")
 
       const byDay = new Map<string, MrrMove[]>()
       const days = new Set(d.daily.map((r) => r.date))

@@ -65,7 +65,7 @@ export const getTimeseriesTool = defineTool({
     const { rows, retention } = await ctx.read(async (db) => {
       const [rows, retention] = await Promise.all([
         getDayRows(db, scope.appIds, range),
-        rates.length > 0 ? Promise.all(buckets.map((b) => getRetention(db, scope.appIds, b))) : null,
+        rates.length > 0 ? Promise.all(buckets.map((b) => getRetention(db, scope.appIds, b, scope.timeZone))) : null,
       ])
       return { rows, retention }
     })
@@ -98,11 +98,11 @@ export const getTimeseriesTool = defineTool({
         ),
       }))
       if (byApp.some((s) => withNulls(s.points))) notes.push(NOTES.nullMeansNothingToDivide)
-      return envelope({ ...head, by_app: byApp }, { range, notes })
+      return envelope({ ...head, by_app: byApp }, { timeZone: scope.timeZone, range, notes })
     }
 
     const points = pointsOf(rows, (i) => (retention ? addRetention([...retention[i].values()]) : null))
     if (withNulls(points)) notes.push(NOTES.nullMeansNothingToDivide)
-    return envelope({ ...head, points }, { range, notes })
+    return envelope({ ...head, points }, { timeZone: scope.timeZone, range, notes })
   },
 })

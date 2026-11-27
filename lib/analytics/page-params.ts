@@ -1,17 +1,18 @@
 import type { Db } from "@/lib/db/client"
+import { todayIn } from "@/lib/time-zone"
 import { earliestDate, type AppInfo } from "./queries"
 import {
   autoGranularity,
   compareRange,
   resolveRange,
-  todayUtc,
   type Compare,
   type Granularity,
   type Range,
 } from "./range"
 
 // What every page needs from the URL, validated: the range, the comparison, the bucket
-// size and the apps. The URL is the state, so any view can be bookmarked or shared.
+// size and the apps. The URL is the state, so any view can be bookmarked or shared. The
+// time zone is not in the URL: it is a setting, so the same link shows the same days.
 
 export type SearchParams = Record<string, string | string[] | undefined>
 
@@ -23,7 +24,10 @@ export type PageParams = {
   granularitySetting: Granularity | "auto"
   appIds: string[]
   earliest: string | null
+  /** Today in the dashboard's time zone. */
   today: string
+  /** The dashboard's time zone, which the range's days are days in. */
+  timeZone: string
 }
 
 const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value)
@@ -33,9 +37,10 @@ export async function loadPageParams(
   params: SearchParams,
   /** The apps this page may show. */
   scope: AppInfo[],
+  timeZone: string,
   now: Date = new Date(),
 ): Promise<PageParams> {
-  const today = todayUtc(now)
+  const today = todayIn(timeZone, now)
   const scopeIds = scope.map((a) => a.id)
   const earliest = await earliestDate(db, scopeIds)
 
@@ -57,5 +62,6 @@ export async function loadPageParams(
     appIds: chosen.length > 0 ? chosen : scopeIds,
     earliest,
     today,
+    timeZone,
   }
 }

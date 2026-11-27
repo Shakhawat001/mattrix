@@ -1,8 +1,8 @@
 import { asc, inArray } from "drizzle-orm"
 import { z } from "zod"
 import { earliestDate, type AppInfo } from "@/lib/analytics/queries"
-import { todayUtc } from "@/lib/analytics/range"
 import { connections } from "@/lib/db/schema"
+import { todayIn } from "@/lib/time-zone"
 import type { McpContext } from "./context"
 import { toolRange, type RangeInput, type ToolRange } from "./range"
 import { earningsReadable } from "./tools/list-apps"
@@ -24,14 +24,16 @@ export const APPS_INPUT = {
 export type Scope = ToolRange & {
   apps: AppInfo[]
   appIds: string[]
+  /** The dashboard's time zone: the range's days are days there. */
+  timeZone: string
 }
 
 /** The apps asked for (every visible one by default) and the range, with notes on both. Throws a ToolError for an unknown app or a range it cannot read. */
 export async function readScope(ctx: McpContext, input: RangeInput & { app_ids?: string[] }, options: { earnings?: boolean } = {}): Promise<Scope> {
   const apps = await ctx.apps(input.app_ids)
   const appIds = apps.map((a) => a.id)
-  const [earliest, sources] = await Promise.all([ctx.read((db) => earliestDate(db, appIds)), sourceNotes(ctx, apps, options)])
-  const asked = toolRange(input, todayUtc(ctx.now), earliest)
+  const [earliest, sources, timeZone] = await Promise.all([ctx.read((db) => earliestDate(db, appIds)), sourceNotes(ctx, apps, options), ctx.timeZone()])
+  const asked = toolRange(input, todayIn(timeZone, ctx.now), earliest)
 
   const notes = [...asked.notes, ...sources]
   if (earliest === null) notes.push(apps.length === 0 ? "No app is visible, so there is nothing to count. list_apps says what is connected." : "These apps have no data yet.")
@@ -39,7 +41,7 @@ export async function readScope(ctx: McpContext, input: RangeInput & { app_ids?:
     if (asked.range.from < earliest) notes.push(`The data of these apps starts on ${earliest}. Nothing before that day was read, so the part of the range before it is empty.`)
     if (asked.compared && asked.compared.from < earliest) notes.push(`The compared range starts before the data of these apps does, on ${earliest}, so the previous values leave out what happened before that day.`)
   }
-  return { ...asked, notes, apps, appIds }
+  return { ...asked, notes, apps, appIds, timeZone }
 }
 
 /** What a tool says about the apps it read. */

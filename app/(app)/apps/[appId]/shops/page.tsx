@@ -12,11 +12,12 @@ import { reasonLabel } from "@/lib/analytics/labels"
 import type { SearchParams } from "@/lib/analytics/page-params"
 import { listShops } from "@/lib/analytics/queries"
 import { formatDate } from "@/lib/analytics/range"
-import { requireVisibleApp } from "@/lib/analytics/scope"
+import { getTimeZone, requireVisibleApp } from "@/lib/analytics/scope"
 import { carriedFrom, oneOf, pageNumber, toParams, withParams } from "@/lib/analytics/url"
 import { getDb } from "@/lib/db/client"
 import { formatInt, formatMoney } from "@/lib/format"
 import { requireSession } from "@/lib/auth/dal"
+import { dayIn } from "@/lib/time-zone"
 
 export const metadata: Metadata = { title: "Shops" }
 
@@ -35,7 +36,7 @@ export default async function ShopsPage({ params, searchParams }: { params: Prom
   const sort = oneOf(query.sort, ["recent", "mrr", "revenue", "shop"] as const) ?? "recent"
   const page = pageNumber(query.page)
 
-  const { rows, total } = await listShops(getDb(), [appId], { q, status, plan, sort, page, pageSize: PAGE_SIZE })
+  const [{ rows, total }, timeZone] = await Promise.all([listShops(getDb(), [appId], { q, status, plan, sort, page, pageSize: PAGE_SIZE }), getTimeZone()])
   // Excluded shops leave this list at the next rebuild; until then their row says so.
   const excluded = new Set((await listExcludedShops(getDb())).map((s) => s.shop))
   const current = toParams(query)
@@ -100,8 +101,8 @@ export default async function ShopsPage({ params, searchParams }: { params: Prom
                   <TableCell className="text-right tabular-nums">{s.subscribed ? formatMoney(s.monthlyCents) : "n/a"}</TableCell>
                   <TableCell className="text-right tabular-nums">{s.charged > 0 ? formatMoney(s.charged) : "n/a"}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatInt(s.installs)}</TableCell>
-                  <TableCell className="text-muted-foreground">{formatDate(s.firstInstalledAt.toISOString().slice(0, 10))}</TableCell>
-                  <TableCell className="text-muted-foreground">{s.uninstalledAt ? formatDate(s.uninstalledAt.toISOString().slice(0, 10)) : ""}</TableCell>
+                  <TableCell className="text-muted-foreground">{formatDate(dayIn(s.firstInstalledAt, timeZone))}</TableCell>
+                  <TableCell className="text-muted-foreground">{s.uninstalledAt ? formatDate(dayIn(s.uninstalledAt, timeZone)) : ""}</TableCell>
                   <TableCell className="max-w-56 truncate text-muted-foreground" title={s.reason ?? undefined}>
                     {s.reason ? s.reason.split(",").map((r) => reasonLabel(r.trim())).join(", ") : ""}
                   </TableCell>

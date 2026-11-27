@@ -7,6 +7,7 @@ import { ExportLink } from "@/components/app/export-link"
 import { StatGrid } from "@/components/app/kpi-card"
 import { MatrixTable } from "@/components/app/matrix-table"
 import { PageHeader } from "@/components/app/page-header"
+import { RebuildNotice } from "@/components/app/rebuild-notice"
 import { ChartCard } from "@/components/charts/chart-card"
 import { getAtRisk } from "@/lib/analytics/at-risk"
 import type { MetricId } from "@/lib/analytics/metrics-registry"
@@ -73,6 +74,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
 
   return (
     <>
+      <RebuildNotice />
       <PageHeader
         description={`${shown.length} ${shown.length === 1 ? "app" : "apps"}, ${formatRange(params.range)}${params.compared ? `, compared with ${formatRange(params.compared)}` : ""}.`}
         actions={<ExportLink params={{ kind: "daily", from: params.range.from, to: params.range.to, apps: params.appIds.join(",") }} label="Export daily numbers" />}
@@ -81,7 +83,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
       <StatGrid ids={["mrr", "activeInstalls", "activeSubs", "netNewMrr"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} />
       <StatGrid ids={["nrr", "subChurnRate", "trialConversion", "charged"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} />
 
-      <AtRiskCard data={atRisk} apps={shown} carry={carry} />
+      <AtRiskCard data={atRisk} apps={shown} carry={carry} timeZone={params.timeZone} />
 
       <MatrixTable
         title="Apps side by side"

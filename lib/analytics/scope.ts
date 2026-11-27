@@ -5,7 +5,7 @@ import { requireSession } from "@/lib/auth/dal"
 import { getDb } from "@/lib/db/client"
 import { addRetention, bucketSeries, kpisFor, type DayRow, type Kpis, type Retention, type SeriesPoint } from "./aggregate"
 import { loadPageParams, type PageParams, type SearchParams } from "./page-params"
-import { getDayRows, getRetention, listApps, type AppInfo } from "./queries"
+import { getDayRows, getRetention, listApps, readTimeZone, type AppInfo } from "./queries"
 import type { Range } from "./range"
 import { appColors, appSeries, type AppSeries } from "./series"
 import { COMPARE_OPTIONS, compareLabel } from "./url"
@@ -24,6 +24,15 @@ import { COMPARE_OPTIONS, compareLabel } from "./url"
 export const getApps = cache(async () => {
   await requireSession()
   return listApps(getDb())
+})
+
+/**
+ * The dashboard's time zone, from Settings: what every day is a day in and every time is
+ * shown in. Read once per request, with the session checked like every other read.
+ */
+export const getTimeZone = cache(async () => {
+  await requireSession()
+  return readTimeZone(getDb())
 })
 
 /** One app that is not hidden, by an id from the URL, or a 404. Nothing else may be read by id. */
@@ -65,20 +74,20 @@ export type Dashboard = {
 export async function loadDashboard(searchParams: SearchParams, appId?: string): Promise<Dashboard> {
   const db = getDb()
   const now = new Date()
-  const all = await getApps()
+  const [all, timeZone] = await Promise.all([getApps(), getTimeZone()])
   const visible = all.filter((a) => !a.hidden)
   const scope = appId ? visible.filter((a) => a.id === appId) : visible
   // An id that is not a visible app reads nothing.
   if (appId && scope.length === 0) notFound()
-  const params = await loadPageParams(db, searchParams, scope, now)
+  const params = await loadPageParams(db, searchParams, scope, timeZone, now)
   const shown = scope.filter((a) => params.appIds.includes(a.id))
 
   // One read covers the range and the comparison range, and the day before each.
   const from = params.compared && params.compared.from < params.range.from ? params.compared.from : params.range.from
   const [rows, retention, comparedRetention] = await Promise.all([
     getDayRows(db, params.appIds, { from, to: params.range.to }),
-    getRetention(db, params.appIds, params.range),
-    params.compared ? getRetention(db, params.appIds, params.compared) : null,
+    getRetention(db, params.appIds, params.range, timeZone),
+    params.compared ? getRetention(db, params.appIds, params.compared, timeZone) : null,
   ])
   const colors = appColors(all)
   const together = (by: Map<string, Retention> | null) => (by ? addRetention([...by.values()]) : null)

@@ -84,7 +84,7 @@ describe("prompts/get", () => {
     const text = await get("weekly_review")
     expect(text).toBe(renderPlan(planOf("weekly_review")))
     expect(planOf("weekly_review").steps.map((s) => s.tool)).toEqual(["list_apps", "get_metrics", "get_metrics", "explain_mrr_change", "get_churn", "get_at_risk"])
-    expect(text).toMatch(/^Write my weekly review of my Shopify apps from AppMetrics: the last 7 days \(UTC, today included\) against the 7 days before\.\n\nCall these AppMetrics tools, in this order:\n1\. list_apps: /)
+    expect(text).toMatch(/^Write my weekly review of my Shopify apps from AppMetrics: the last 7 days \(in the dashboard's time zone, today included\) against the 7 days before\.\n\nCall these AppMetrics tools, in this order:\n1\. list_apps: /)
     expect(text).toContain('\n2. get_metrics with {"preset":"last_7_days","compare":"previous_period","metrics":["mrr",')
     expect(text).toContain('\n5. get_churn with {"preset":"last_7_days","compare":"previous_period"}: ')
     expect(text).toContain("\n6. get_at_risk: ")
@@ -122,7 +122,7 @@ describe("prompts/get", () => {
 
   it("investigate_churn leaves a range it cannot read to the agent, to turn into days or ask about", async () => {
     const text = await get("investigate_churn", { app: '  "show   discount" ', range: "October" })
-    expect(text).toMatch(/^Investigate churn for the app "show discount" over "October", against the same number of days just before\. FROM and TO stand for the first and last day of "October", written YYYY-MM-DD in UTC\. If you cannot tell which days I mean, ask me before you call a tool\.\n/)
+    expect(text).toMatch(/^Investigate churn for the app "show discount" over "October", against the same number of days just before\. FROM and TO stand for the first and last day of "October", written YYYY-MM-DD as days in the dashboard's time zone. If you cannot tell which days I mean, ask me before you call a tool\.\n/)
     expect(text).toContain('"from":"FROM","to":"TO"')
   })
 

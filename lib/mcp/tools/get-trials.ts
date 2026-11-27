@@ -32,7 +32,7 @@ export const getTrialsTool = defineTool({
     const scope = await readScope(ctx, input)
     const { appIds, range, compared } = scope
     const [numbers, started, open] = await ctx.read((db) =>
-      Promise.all([readRangeNumbers(db, appIds, range, compared), getTrialStats(db, appIds, range), getOpenTrials(db, appIds, input.limit ?? DEFAULT_LIMIT)])
+      Promise.all([readRangeNumbers(db, appIds, range, compared, scope.timeZone), getTrialStats(db, appIds, range, scope.timeZone), getOpenTrials(db, appIds, input.limit ?? DEFAULT_LIMIT)])
     )
 
     const metrics = TRIALS.map((id) => metricAnswer(id, numbers.kpis, numbers.compared))
@@ -72,7 +72,7 @@ export const getTrialsTool = defineTool({
           })),
         },
       },
-      { range, compared, notes }
+      { timeZone: scope.timeZone, range, compared, notes }
     )
   },
 })

@@ -17,13 +17,14 @@ export const getDataHealthTool = defineTool({
   async run(ctx, input) {
     const apps = await ctx.apps(input.app_ids)
     const appIds = apps.map((a) => a.id)
-    const [health, all] = await ctx.read((db) => Promise.all([getDataHealth(db, appIds, ctx.now), listApps(db)]))
+    const timeZone = await ctx.timeZone()
+    const [health, all] = await ctx.read((db) => Promise.all([getDataHealth(db, appIds, timeZone, ctx.now), listApps(db)]))
     const hidden = all.filter((a) => a.hidden).length
     const nameOf = new Map(apps.map((a) => [a.id, a.label]))
 
     const notes = await sourceNotes(ctx, apps)
     if (hidden > 0) notes.push(`${hidden} ${hidden === 1 ? "app is" : "apps are"} hidden in Settings and left out, as on the dashboard.`)
-    notes.push("Event counts include excluded shops, as stored. The gap checks leave them out, since no number counts them.", "per_month counts events in each month of months, oldest first; months are UTC.")
+    notes.push("Event counts include excluded shops, as stored. The gap checks leave them out, since no number counts them.", "per_month counts events in each month of months, oldest first; months are months in the dashboard's time zone, the timezone of this answer.")
 
     return envelope(
       {
@@ -81,7 +82,7 @@ export const getDataHealthTool = defineTool({
           })),
         })),
       },
-      { notes }
+      { timeZone, notes }
     )
   },
 })

@@ -263,7 +263,7 @@ describe("cohortRetention", () => {
   const now = new Date("2026-11-22T12:00:00Z") // a Sunday: the week of the 16th is just over
 
   it("measures the share still installed at the end of each week since the cohort's first", () => {
-    const [first] = cohortRetention(stays, "week", now)
+    const [first] = cohortRetention(stays, "week", now, "UTC")
     expect(first.cohort).toBe("2026-11-02")
     expect(first.size).toBe(4)
     expect(first.cells[0]).toBeCloseTo(0.75) // end of week 0 (9 Nov): the first one has left
@@ -272,7 +272,7 @@ describe("cohortRetention", () => {
   })
 
   it("leaves a period empty until it has fully passed", () => {
-    const [first, second] = cohortRetention(stays, "week", now)
+    const [first, second] = cohortRetention(stays, "week", now, "UTC")
     expect(first.cells[3]).toBeNull()
     expect(second.cohort).toBe("2026-11-16")
     expect(second.cells[0]).toBe(1)
@@ -280,13 +280,13 @@ describe("cohortRetention", () => {
   })
 
   it("orders cohorts oldest first and fills every row to the requested length", () => {
-    const rows = cohortRetention(stays, "week", now, 5)
+    const rows = cohortRetention(stays, "week", now, "UTC", 5)
     expect(rows.map((r) => r.cohort)).toEqual(["2026-11-02", "2026-11-16"])
     expect(rows.every((r) => r.cells.length === 5)).toBe(true)
   })
 
   it("groups by month too", () => {
-    const [nov] = cohortRetention(stays, "month", new Date("2026-12-15T12:00:00Z"))
+    const [nov] = cohortRetention(stays, "month", new Date("2026-12-15T12:00:00Z"), "UTC")
     expect(nov.cohort).toBe("2026-11-01")
     expect(nov.size).toBe(5)
     expect(nov.cells[0]).toBeCloseTo(3 / 5) // end of November: two of five are gone
@@ -294,6 +294,18 @@ describe("cohortRetention", () => {
   })
 
   it("returns nothing for no installs", () => {
-    expect(cohortRetention([], "week", now)).toEqual([])
+    expect(cohortRetention([], "week", now, "UTC")).toEqual([])
+  })
+
+  it("counts weeks in the dashboard's time zone", () => {
+    // 20:00 UTC on Sunday 8 Nov is 02:00 on Monday 9 Nov in Dhaka, so a new week there.
+    const late = [{ installedAt: new Date("2026-11-08T20:00:00Z"), uninstalledAt: new Date("2026-11-15T19:00:00Z") }]
+    expect(cohortRetention(late, "week", now, "UTC")[0].cohort).toBe("2026-11-02")
+
+    const [dhaka] = cohortRetention(late, "week", now, "Asia/Dhaka")
+    expect(dhaka.cohort).toBe("2026-11-09")
+    // Week 0 ends as 16 Nov begins in Dhaka, at 18:00 UTC on the 15th. The shop left an hour later, in week 1.
+    expect(dhaka.cells[0]).toBe(1)
+    expect(dhaka.cells[1]).toBe(0)
   })
 })

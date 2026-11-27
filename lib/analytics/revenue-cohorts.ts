@@ -1,19 +1,15 @@
 import { sql, type SQL } from "drizzle-orm"
 import type { Queryable } from "@/lib/db/client"
-import { addDays, nextBucket, todayUtc, toMs, type Range } from "./range"
+import { endOfDay, startOfDay, todayIn } from "@/lib/time-zone"
+import { addDays, nextBucket, type Range } from "./range"
 
 // Revenue cohorts: the shops that first started paying in each month, and how much of what they
 // started with they still pay at the end of every month after. "Paying" means what it means
 // everywhere else: a monthly price above zero, with a free trial counting from its conversion.
 // A shop in two apps is two customers.
 
-const DAY_MS = 86_400_000
-
 /** `('a', 'b')` for a raw query. An empty list matches nothing. */
 const inList = (ids: string[]): SQL => (ids.length === 0 ? sql`(NULL)` : sql`(${sql.join(ids.map((id) => sql`${id}`), sql`, `)})`)
-const startOf = (date: string) => new Date(`${date}T00:00:00Z`)
-/** The first instant after a day. */
-const endOf = (date: string) => new Date(toMs(date) + DAY_MS)
 const ts = (d: Date): SQL => sql`${d.toISOString()}::timestamptz`
 
 export type RevenueCohortCell = {
@@ -70,12 +66,14 @@ export function revenueCohortRows(starts: CohortStart[], held: CohortHeld[], tod
  * cohorts; each cohort is then followed to today, like the install cohorts. Its starting MRR is
  * what each shop paid when it first started paying; the MRR at the end of a month is what the
  * same shops pay at the last instant of it, read the way getRetention reads the end of a range.
+ * Months begin and end at midnight in `timeZone`, the dashboard's time zone.
  */
-export async function getRevenueCohorts(db: Queryable, appIds: string[], range: Range, now: Date = new Date(), periods = 12): Promise<RevenueCohortRow[]> {
+export async function getRevenueCohorts(db: Queryable, appIds: string[], range: Range, timeZone: string, now: Date = new Date(), periods = 12): Promise<RevenueCohortRow[]> {
   if (appIds.length === 0) return []
-  const today = todayUtc(now)
+  const today = todayIn(timeZone, now)
 
-  // Month boundaries are worked out on UTC wall-clock time, so the session's time zone cannot move them.
+  // Month boundaries are worked out on the wall clock of the dashboard's time zone, named here, so
+  // the session's own time zone cannot move them. Postgres knows the same IANA zone names.
   const rows = await db.execute<{ cohort: string; k: number | null; shops: number; cents: string }>(sql`
     WITH paid AS (
       SELECT app_id, shop, started_at, ended_at, monthly_cents,
@@ -88,13 +86,13 @@ export async function getRevenueCohorts(db: Queryable, appIds: string[], range: 
       WHERE ended_at IS NULL OR paid_from < ended_at
       ORDER BY app_id, shop, paid_from, started_at
     ), members AS (
-      SELECT app_id, shop, start_cents, date_trunc('month', paid_from AT TIME ZONE 'UTC') AS cohort
+      SELECT app_id, shop, start_cents, date_trunc('month', paid_from AT TIME ZONE ${timeZone}) AS cohort
       FROM first_paid
-      WHERE paid_from >= ${ts(startOf(range.from))} AND paid_from < ${ts(endOf(range.to))}
+      WHERE paid_from >= ${ts(startOfDay(range.from, timeZone))} AND paid_from < ${ts(endOfDay(range.to, timeZone))}
     ), month_ends AS (
-      SELECT m.app_id, m.shop, m.cohort, g.k, (m.cohort + make_interval(months => g.k + 1)) AT TIME ZONE 'UTC' AS at
+      SELECT m.app_id, m.shop, m.cohort, g.k, (m.cohort + make_interval(months => g.k + 1)) AT TIME ZONE ${timeZone} AS at
       FROM members m CROSS JOIN generate_series(0, ${periods - 1}::int) AS g(k)
-      WHERE (m.cohort + make_interval(months => g.k + 1)) AT TIME ZONE 'UTC' <= ${ts(startOf(addDays(today, 1)))}
+      WHERE (m.cohort + make_interval(months => g.k + 1)) AT TIME ZONE ${timeZone} <= ${ts(startOfDay(addDays(today, 1), timeZone))}
     ), held AS (
       SELECT e.cohort, e.k, coalesce((
         SELECT CASE WHEN s.trial_ends_at IS NULL OR s.converted_at < e.at THEN s.monthly_cents ELSE 0 END

@@ -11,9 +11,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { PRESETS, formatRange, isDate } from "@/lib/analytics/range"
 import type { RangeSelection } from "@/lib/analytics/url"
 
-// The calendar works in the browser's local time and the dashboard in UTC days. A date is
-// only ever carried between them as a "YYYY-MM-DD" string, built from local parts on both
-// sides, so a day never shifts.
+// The calendar works in the browser's local time and the dashboard in days of its own time
+// zone (Settings), which need not be the browser's. A date is only ever carried between them
+// as a "YYYY-MM-DD" string, built from local parts on both sides, so a day never shifts.
 const toDate = (iso: string) => {
   const [year, month, day] = iso.split("-").map(Number)
   return new Date(year, month - 1, day)
@@ -22,7 +22,7 @@ const toIso = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 
 
 type Props = {
   selection: RangeSelection
-  /** The latest day with data, in UTC. Nothing after it can be picked. */
+  /** Today in the dashboard's time zone. Nothing after it can be picked. */
   today: string
   onChange: (updates: Record<string, string | null>) => void
 }

@@ -38,6 +38,7 @@ function timelineOf(list: TimelineEvent[], now = NOW): ShopTimeline {
   const d = derive(
     list.map((e) => ({ ...e, shop: SHOP })),
     now,
+    "UTC",
   )
   return {
     appId: "app",
@@ -65,7 +66,7 @@ describe("the shop timeline in plain words", () => {
   ]
 
   it("tells a whole stay, oldest first, with the trial worked out from the events", () => {
-    const rows = timelineRows(timelineOf(historyA()))
+    const rows = timelineRows(timelineOf(historyA()), "UTC")
     expect(rows.map((r) => ({ at: r.at.toISOString(), title: r.title, detail: r.detail, quote: r.quote }))).toEqual([
       { at: "2026-01-01T10:00:00.000Z", title: "Installed", detail: null, quote: null },
       { at: "2026-01-01T11:00:00.000Z", title: "Subscribed", detail: "pro at $20 a month", quote: null },
@@ -96,13 +97,14 @@ describe("the shop timeline in plain words", () => {
         ev("SUBSCRIPTION_CANCELED", "2026-01-15T10:02:00Z", monthly(1000, null, "basic")),
         ev("SUBSCRIPTION_CANCELLATION_SCHEDULED", "2026-02-01T08:00:00Z", { planHandle: "pro", billingPeriod: "ANNUAL", amountCents: 24000, cancelEffectiveOn: new Date("2026-03-01T00:00:00Z") }),
       ]),
+      "UTC",
     )
     expect(said(rows)).toEqual([
       { title: "Installed", detail: null },
       { title: "Subscribed", detail: "basic at $10 a month" },
       { title: "Plan changed", detail: "From basic at $10 a month to pro at $20 a month, billed $240 a year" },
       { title: "Canceled", detail: "basic at $10 a month" },
-      { title: "Cancellation scheduled", detail: "pro at $20 a month, billed $240 a year. Takes effect Mar 1, 2026, 00:00 UTC" },
+      { title: "Cancellation scheduled", detail: "pro at $20 a month, billed $240 a year. Takes effect Mar 1, 2026" },
     ])
     expect(rows[4].tone).toBe("loss")
   })
@@ -118,13 +120,14 @@ describe("the shop timeline in plain words", () => {
         // A cancel whose date is not later than itself takes effect at once: no date to tell.
         ev("SUBSCRIPTION_CANCELED", "2026-02-02T12:00:00Z", { cancelEffectiveOn: new Date("2026-02-02T00:00:00Z") }),
       ]),
+      "UTC",
     )
     expect(said(rows)).toEqual([
       { title: "Installed", detail: null },
       { title: "Subscribed", detail: "basic at $10 a month" },
       { title: "Canceled", detail: null },
       { title: "Plan changed", detail: "From basic at $10 a month to pro at $30 a month" },
-      { title: "Canceled", detail: "Takes effect Feb 1, 2026, 00:00 UTC" },
+      { title: "Canceled", detail: "Takes effect Feb 1, 2026" },
       { title: "Canceled", detail: null },
     ])
   })
@@ -141,6 +144,7 @@ describe("the shop timeline in plain words", () => {
         ev("RELATIONSHIP_INSTALLED", "2026-01-20T12:00:00Z"),
         ev("RELATIONSHIP_UNINSTALLED", "2026-01-20T12:20:00Z", { reason: " ,  " }),
       ]),
+      "UTC",
     )
     expect(said(rows)).toEqual([
       { title: "Installed", detail: null },
@@ -165,6 +169,7 @@ describe("the shop timeline in plain words", () => {
         ev("RELATIONSHIP_INSTALLED", "2026-01-04T10:00:00Z"),
         ev("SUBSCRIPTION_CREATED", "2026-01-04T11:00:00Z", { amountCents: 9900, billingPeriod: "ANNUAL", trialDays: 14, planHandle: "plus" }),
       ]),
+      "UTC",
     )
     expect(said(rows).slice(1)).toEqual([
       { title: "Subscribed", detail: "plus at $8.25 a month, billed $99 a year" },
@@ -184,6 +189,7 @@ describe("the shop timeline in plain words", () => {
         ev("RELATIONSHIP_REACTIVATED", "2026-01-16T11:00:00Z"),
         ev("SUBSCRIPTION_UNFROZEN", "2026-01-16T12:00:00Z"),
       ]),
+      "UTC",
     )
     expect(said(rows)).toEqual([
       { title: "Installed", detail: null },
@@ -212,6 +218,7 @@ describe("the shop timeline in plain words", () => {
         ev("CREDIT_APPLIED", "2026-01-11", { amountCents: 1500 }),
         ev("CREDIT_FAILED", "2026-01-12", { amountCents: 700 }),
       ]),
+      "UTC",
     )
     expect(said(rows).slice(1)).toEqual([
       { title: "One-time charge", detail: "$50" },
@@ -238,6 +245,7 @@ describe("the shop timeline in plain words", () => {
         ev("RELATIONSHIP_UNINSTALLED", "2026-01-03", { reason: "other", reasonDescription: words }),
         ev("RELATIONSHIP_SOMETHING_NEW", "2026-01-04", { reasonDescription: "  padded  " }),
       ]),
+      "UTC",
     )
     expect(rows.map((r) => r.quote)).toEqual([null, "Closed for winter", words, "  padded  "])
     expect(rows[2].detail).toBe("Reason: Other. Installed for 2.0 days")
@@ -253,6 +261,7 @@ describe("the shop timeline in plain words", () => {
         // What the billing screen reports (the older App.events): derive() leaves these out, the timeline keeps them.
         ev("SUBSCRIPTION_CHARGE_DECLINED", "2026-01-05", { amountCents: 2499 }),
       ]),
+      "UTC",
     )
     expect(rows.map((r) => ({ type: r.type, title: r.title, detail: r.detail, tone: r.tone }))).toEqual([
       { type: "RELATIONSHIP_INSTALLED", title: "Installed", detail: null, tone: "plain" },
@@ -274,6 +283,7 @@ describe("the shop timeline in plain words", () => {
         ev("RELATIONSHIP_INSTALLED", "2026-01-10T09:00:00Z"),
         ev("SUBSCRIPTION_CREATED", "2026-01-10T09:05:00Z", monthly(2000)),
       ]),
+      "UTC",
     )
     expect(said(rows)).toEqual([
       { title: "Installed", detail: null },
@@ -300,6 +310,7 @@ describe("the shop timeline in plain words", () => {
             ev("SUBSCRIPTION_CREATED", "2026-01-12", monthly(1500, null, "basic")),
             ev("SUBSCRIPTION_UPDATED", "2026-01-20", { planHandle: "plus" }),
           ]),
+          "UTC",
         ),
       ),
     ).toEqual([
@@ -315,7 +326,7 @@ describe("the shop timeline in plain words", () => {
 
   it("falls back to the events alone when the stays and periods are not built", () => {
     const t = { ...timelineOf([]), events: [ev("RELATIONSHIP_INSTALLED", "2026-01-01"), ev("SUBSCRIPTION_CREATED", "2026-01-01", monthly(2000, 7)), ev("SUBSCRIPTION_UPDATED", "2026-01-03", monthly(2500))], eventCount: 3 }
-    expect(said(timelineRows(t))).toEqual([
+    expect(said(timelineRows(t, "UTC"))).toEqual([
       { title: "Installed", detail: null },
       { title: "Subscribed", detail: "pro at $20 a month" },
       { title: "Subscription updated", detail: "pro at $25 a month" },
@@ -324,10 +335,10 @@ describe("the shop timeline in plain words", () => {
 
   it("leaves out trial rows older than the first event when the list was cut to the latest events", () => {
     const full = timelineOf(historyA())
-    const rows = timelineRows({ ...full, events: full.events.slice(-3) })
+    const rows = timelineRows({ ...full, events: full.events.slice(-3) }, "UTC")
     expect(rows.map((r) => r.title)).toEqual(["Plan changed", "Canceled", "Uninstalled"])
     // Uncut, nothing is left out.
-    expect(timelineRows(full)).toHaveLength(9)
+    expect(timelineRows(full, "UTC")).toHaveLength(9)
   })
 })
 

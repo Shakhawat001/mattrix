@@ -120,7 +120,7 @@ describe.skipIf(!hasDatabase)("excluded shops (Postgres)", () => {
 
     // No derived row names the shop, so what reads those tables leaves it out too and still matches the rollup.
     expect((await database.sql<{ shop: string }[]>`select shop from installs union select shop from subscriptions union select shop from trials`).map((r) => r.shop)).toEqual(["real.myshopify.com"])
-    const movers = await getMrrMovers(database.db, [badges, notes], range)
+    const movers = await getMrrMovers(database.db, [badges, notes], range, "UTC")
     const both = kpisFor(await getDayRows(database.db, [badges, notes], range), range)
     expect(movers.moves.map((m) => m.shop)).toEqual(["real.myshopify.com"])
     expect(movers.totals).toMatchObject({ newMrrCents: both.newMrr, expansionMrrCents: both.expansionMrr, contractionMrrCents: both.contractionMrr, churnedMrrCents: both.churnedMrr, newSubs: both.newSubs, canceledSubs: both.canceledSubs })
@@ -157,7 +157,7 @@ describe.skipIf(!hasDatabase)("excluded shops (Postgres)", () => {
     try {
       await held`begin`
       await held`select 1 from installs where app_id = ${badges} for update`
-      work.push(rebuildApp(database.db, badges, NOW))
+      work.push(rebuildApp(database.db, badges, "UTC", NOW))
       await lockWait(other, 'delete from "installs"%')
       work.push(addExcludedShop(database.db, "dev.myshopify.com", null))
       // Marking the app waits for the rebuild to finish. Without that wait it is done already, and the check below fails.
@@ -178,7 +178,7 @@ describe.skipIf(!hasDatabase)("excluded shops (Postgres)", () => {
 
   it("rebuilds nothing for an app that no longer exists", async () => {
     const before = await rollup()
-    await expect(rebuildApp(database.db, "00000000-0000-4000-8000-000000000000", NOW)).resolves.toBeUndefined()
+    await expect(rebuildApp(database.db, "00000000-0000-4000-8000-000000000000", "UTC", NOW)).resolves.toBeUndefined()
     expect(await rollup()).toEqual(before)
   })
 })

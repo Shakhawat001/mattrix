@@ -98,7 +98,7 @@ describe("exchangeFailed", () => {
 
 describe("tool results", () => {
   it("send the answer as JSON text and as structured content", () => {
-    const answer = envelope({ apps: [{ id: "a" }] }, { notes: ["n"] })
+    const answer = envelope({ apps: [{ id: "a" }] }, { timeZone: "UTC", notes: ["n"] })
     const result = toolResult(answer)
     expect(result.isError).toBeUndefined()
     expect(result.structuredContent).toEqual(answer)
@@ -215,6 +215,7 @@ const app = (over: Partial<AppInfo> = {}): AppInfo => ({
   firstEventAt: new Date("2025-02-01T08:00:00Z"),
   lastEventAt: new Date("2026-11-21T22:00:00Z"),
   derivedAt: NOW,
+  derivedTimeZone: "UTC",
   ...over,
 })
 
@@ -228,7 +229,7 @@ describe("list_apps", () => {
   })
 
   it("writes each app and connection, with times in UTC and no Partner details", () => {
-    const answer = describeApps([app()], [connection()])
+    const answer = describeApps([app()], [connection()], "UTC")
     expect(answer.timezone).toBe("UTC")
     expect(answer.data.apps).toEqual([
       {
@@ -272,7 +273,7 @@ describe("list_apps", () => {
         connection({ id: "e", label: "No earnings org", earningsError: "ACCESS_DENIED" }),
         connection({ id: "b", label: "No billing org", legacyError: "App.events answered 403" }),
       ]
-    )
+    , "UTC")
     expect(answer.notes).toEqual([
       "Demo organization holds demo data made up by the seed-demo command. None of it is real.",
       "New org has not finished a sync yet, so its apps may have no numbers.",
@@ -286,7 +287,7 @@ describe("list_apps", () => {
   })
 
   it("says when nothing is connected yet", () => {
-    expect(describeApps([], []).notes).toEqual(["Nothing is connected yet. A Shopify Partner API token is added in Settings."])
+    expect(describeApps([], [], "UTC").notes).toEqual(["Nothing is connected yet. A Shopify Partner API token is added in Settings."])
   })
 })
 
@@ -300,7 +301,7 @@ describe("the definitions", () => {
   })
 
   it("give the conventions as plain sentences", () => {
-    expect(CONVENTION_TEXT[0]).toBe("Days are UTC. A day runs from 00:00 to 24:00 UTC and every time in the dashboard is shown in UTC. A range includes both of its end days.")
+    expect(CONVENTION_TEXT[0]).toBe("Days are in your time zone. You pick the zone in Settings (it is UTC until you do). A day runs from midnight to midnight there, so on a daylight saving change it is 23 or 25 hours long, and every time in the dashboard is shown on that zone's clock. A range includes both of its end days. CSV exports give dates in the same zone and moments in UTC (ISO 8601).")
     for (const text of CONVENTION_TEXT) expect(text).not.toContain("**")
   })
 

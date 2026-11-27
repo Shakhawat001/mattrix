@@ -69,7 +69,7 @@ describe("numbers", () => {
 
 describe("the envelope", () => {
   it("states the range, the comparison, that times are UTC, and the notes, before the data", () => {
-    const answer = envelope({ apps: [] }, { range: { from: "2026-11-01", to: "2026-11-22" }, compared: { from: "2026-10-11", to: "2026-10-31" }, notes: ["a", "b", "a"] })
+    const answer = envelope({ apps: [] }, { timeZone: "UTC", range: { from: "2026-11-01", to: "2026-11-22" }, compared: { from: "2026-10-11", to: "2026-10-31" }, notes: ["a", "b", "a"] })
     expect(Object.keys(answer)).toEqual(["range", "compared_range", "timezone", "notes", "data"])
     expect(answer).toEqual({
       range: { from: "2026-11-01", to: "2026-11-22" },
@@ -81,8 +81,8 @@ describe("the envelope", () => {
   })
 
   it("leaves out the range when the tool has none", () => {
-    expect(envelope({ x: 1 })).toEqual({ timezone: "UTC", notes: [], data: { x: 1 } })
-    expect(envelope({ x: 1 }, { range: null, compared: null })).toEqual({ timezone: "UTC", notes: [], data: { x: 1 } })
+    expect(envelope({ x: 1 }, { timeZone: "UTC" })).toEqual({ timezone: "UTC", notes: [], data: { x: 1 } })
+    expect(envelope({ x: 1 }, { timeZone: "UTC", range: null, compared: null })).toEqual({ timezone: "UTC", notes: [], data: { x: 1 } })
   })
 
   it("tells agents how numbers are written, without em dashes", () => {
@@ -124,7 +124,7 @@ describe("hiding shop domains", () => {
     ],
     shops: ["a.myshopify.com", "b.myshopify.com"],
     note: "Mentions acme.myshopify.com outside a shop field.",
-  })
+  }, { timeZone: "UTC" })
 
   it("replaces every shop field, at any depth, and every item of a shops list", () => {
     const hidden = hideShopDomains(answer, alias)

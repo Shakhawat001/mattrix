@@ -1,4 +1,5 @@
 import { formatDateTime, formatDays, formatInt, formatMoney } from "@/lib/format"
+import { formatDate } from "./range"
 import { monthlyCents } from "./derive"
 import { eventLabel, reasonLabel } from "./labels"
 import type { ShopTimeline, TimelineEvent, TimelineSubscription } from "./shop-timeline"
@@ -155,9 +156,15 @@ function earningWords(e: TimelineEvent): string | null {
   return parts.length ? parts.join(", ") : null
 }
 
+/**
+ * The day a cancel takes effect, as Shopify names it. cancelEffectiveOn is a date with no time,
+ * stored as midnight UTC of it, so it is written as that date: it takes effect as the day begins.
+ */
+const effectiveDay = (date: Date) => `Takes effect ${formatDate(date.toISOString().slice(0, 10))}`
+
 /** A cancel's end, when Shopify says it comes later than the cancel. */
 const laterEnd = (e: TimelineEvent): string | null =>
-  e.cancelEffectiveOn && e.cancelEffectiveOn.getTime() > e.occurredAt.getTime() ? `Takes effect ${formatDateTime(e.cancelEffectiveOn)}` : null
+  e.cancelEffectiveOn && e.cancelEffectiveOn.getTime() > e.occurredAt.getTime() ? effectiveDay(e.cancelEffectiveOn) : null
 
 /**
  * The shop's story as rows, oldest first: one per event, in the order the read returns them, and
@@ -167,7 +174,8 @@ const laterEnd = (e: TimelineEvent): string | null =>
  * event list was cut to the latest events, trial rows older than the first event shown are left
  * out too. An event type not known here is kept, shown by its name with what it carries.
  */
-export function timelineRows(t: Pick<ShopTimeline, "stays" | "subscriptions" | "trials" | "events" | "eventCount">): TimelineRow[] {
+/** `timeZone` is the dashboard's, which the times in the rows are written in. */
+export function timelineRows(t: Pick<ShopTimeline, "stays" | "subscriptions" | "trials" | "events" | "eventCount">, timeZone: string): TimelineRow[] {
   const staysByStart = new Map(t.stays.map((s) => [s.installedAt.getTime(), s]))
   const staysByEnd = new Map(t.stays.flatMap((s) => (s.uninstalledAt ? [[s.uninstalledAt.getTime(), s] as const] : [])))
 
@@ -238,7 +246,7 @@ export function timelineRows(t: Pick<ShopTimeline, "stays" | "subscriptions" | "
         return {
           ...base,
           title: "Cancellation scheduled",
-          detail: sentence(namedPlan(e), e.cancelEffectiveOn ? `Takes effect ${formatDateTime(e.cancelEffectiveOn)}` : "Shopify gave no date"),
+          detail: sentence(namedPlan(e), e.cancelEffectiveOn ? effectiveDay(e.cancelEffectiveOn) : "Shopify gave no date"),
           tone: "loss",
         }
       case "SUBSCRIPTION_FROZEN":
@@ -297,7 +305,7 @@ export function timelineRows(t: Pick<ShopTimeline, "stays" | "subscriptions" | "
   t.trials.forEach((trial, i) => {
     const base = { quote: null, type: null }
     sorted.push({
-      row: { ...base, key: `trial-${i}-start`, at: trial.startedAt, title: "Trial started", detail: `${count(trial.trialDays, "day")}, set to end ${formatDateTime(trial.endsAt)}`, tone: "plain" },
+      row: { ...base, key: `trial-${i}-start`, at: trial.startedAt, title: "Trial started", detail: `${count(trial.trialDays, "day")}, set to end ${formatDateTime(trial.endsAt, timeZone)}`, tone: "plain" },
       at: trial.startedAt.getTime(),
       phase: 2,
       order: i,

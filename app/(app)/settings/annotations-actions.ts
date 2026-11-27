@@ -4,10 +4,12 @@ import { eq } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { annotationInput } from "@/lib/analytics/annotations"
-import { formatDate, todayUtc } from "@/lib/analytics/range"
+import { readTimeZone } from "@/lib/analytics/queries"
+import { formatDate } from "@/lib/analytics/range"
 import { requireSession } from "@/lib/auth/dal"
 import { getDb } from "@/lib/db/client"
 import { annotations, apps } from "@/lib/db/schema"
+import { todayIn } from "@/lib/time-zone"
 import type { ActionState } from "./actions"
 
 // Annotations, from Settings. Like every action these start with requireSession(), because a
@@ -25,7 +27,7 @@ export async function addAnnotation(_previous: ActionState, formData: FormData):
 
   const db = getDb()
   const known = await db.select({ id: apps.id }).from(apps)
-  const parsed = annotationInput(known.map((a) => a.id), todayUtc()).safeParse({
+  const parsed = annotationInput(known.map((a) => a.id), todayIn(await readTimeZone(db))).safeParse({
     date: formData.get("date"),
     appId: formData.get("appId"),
     label: formData.get("label"),

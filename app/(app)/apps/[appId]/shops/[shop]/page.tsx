@@ -6,7 +6,7 @@ import { PeriodsTable, ShopFacts, StaysTable, TimelineCard, TrialsTable } from "
 import { buttonVariants } from "@/components/ui/button"
 import { listExcludedShops } from "@/lib/analytics/excluded-shops"
 import type { SearchParams } from "@/lib/analytics/page-params"
-import { requireVisibleApp } from "@/lib/analytics/scope"
+import { getTimeZone, requireVisibleApp } from "@/lib/analytics/scope"
 import { getShopTimeline } from "@/lib/analytics/shop-timeline"
 import { parseShopParam, shopStanding, timelineRows } from "@/lib/analytics/shop-timeline-view"
 import { getShopTotals } from "@/lib/analytics/shop-totals"
@@ -30,7 +30,7 @@ export default async function ShopTimelinePage({ params, searchParams }: Props) 
   if (!shop) notFound()
 
   const db = getDb()
-  const [timeline, totals, excludedShops] = await Promise.all([getShopTimeline(db, appId, shop), getShopTotals(db, appId, shop), listExcludedShops(db)])
+  const [timeline, totals, excludedShops, timeZone] = await Promise.all([getShopTimeline(db, appId, shop), getShopTotals(db, appId, shop), listExcludedShops(db), getTimeZone()])
   if (!timeline) notFound()
   // An excluded shop's events are kept, but no stays, periods or trials are built from them.
   const excluded = excludedShops.some((s) => s.shop === timeline.shop)
@@ -57,16 +57,16 @@ export default async function ShopTimelinePage({ params, searchParams }: Props) 
           .
         </Note>
       ) : (
-        <ShopFacts standing={shopStanding(timeline)} totals={totals} />
+        <ShopFacts standing={shopStanding(timeline)} totals={totals} timeZone={timeZone} />
       )}
 
-      <TimelineCard rows={timelineRows(timeline)} shown={timeline.events.length} total={timeline.eventCount} />
+      <TimelineCard rows={timelineRows(timeline, timeZone)} shown={timeline.events.length} total={timeline.eventCount} timeZone={timeZone} />
 
       {excluded ? null : (
         <>
-          <StaysTable stays={timeline.stays} />
-          <PeriodsTable periods={timeline.subscriptions} />
-          <TrialsTable trials={timeline.trials} />
+          <StaysTable stays={timeline.stays} timeZone={timeZone} />
+          <PeriodsTable periods={timeline.subscriptions} timeZone={timeZone} />
+          <TrialsTable trials={timeline.trials} timeZone={timeZone} />
         </>
       )}
     </>

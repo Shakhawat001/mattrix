@@ -91,6 +91,8 @@ The worker starts the first sync within a minute. The connection shows its progr
 
 Your apps are found by themselves. Rename them, give them a color, or hide one in **Settings, Apps**.
 
+Pick your time zone in **Settings, System**. Days run from midnight to midnight there, and every time is shown on its clock. It is UTC until you pick one. You can change it later: the numbers are rebuilt for the new zone, usually within a minute and longer while a sync is running.
+
 ## 7. Day to day
 
 **Update.** Pull the new code and run `docker compose up -d --build`. Migrations run when `web` starts.

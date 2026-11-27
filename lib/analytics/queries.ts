@@ -1,23 +1,24 @@
 import { and, asc, desc, eq, gte, ilike, inArray, lt, sql, type SQL } from "drizzle-orm"
 import type { Db, Queryable } from "@/lib/db/client"
-import { apps, connections, dailyMetrics, events, installs, syncRuns } from "@/lib/db/schema"
+import { apps, connections, dailyMetrics, events, installs, settings, syncRuns } from "@/lib/db/schema"
 import { parseTimestamp, parseTimestampOrNull } from "@/lib/db/timestamps"
+import { DEFAULT_TIME_ZONE, endOfDay, normalizeTimeZone, startOfDay } from "@/lib/time-zone"
 import { noRetention, type DayRow, type Retention } from "./aggregate"
-import { addDays, toMs, type Range } from "./range"
+import { addDays, type Range } from "./range"
 
 // The reads behind every page. Each takes the apps to include, so one function serves
-// "everything" and "this app". Dates are UTC days; a range includes both of its ends.
-
-const DAY_MS = 86_400_000
+// "everything" and "this app". Dates are days in the dashboard's time zone, and a read that
+// turns a day into instants takes that zone; a range includes both of its ends.
 
 /** `('a', 'b')` for a raw query. An empty list matches nothing. */
 function inList(ids: string[]): SQL {
   return ids.length === 0 ? sql`(NULL)` : sql`(${sql.join(ids.map((id) => sql`${id}`), sql`, `)})`
 }
 
-const startOf = (date: string) => new Date(`${date}T00:00:00Z`)
+/** The first instant of a day in the zone. */
+const startOf = (date: string, timeZone: string) => startOfDay(date, timeZone)
 /** The first instant after a day, so "on or before" a day is "before" this. */
-const endOf = (date: string) => new Date(toMs(date) + DAY_MS)
+const endOf = (date: string, timeZone: string) => endOfDay(date, timeZone)
 /** A timestamp for a raw query: text with a cast, because the driver cannot encode a Date it has no column for. */
 const ts = (d: Date): SQL => sql`${d.toISOString()}::timestamptz`
 
@@ -44,7 +45,17 @@ export type AppInfo = {
   firstEventAt: Date | null
   lastEventAt: Date | null
   derivedAt: Date | null
+  /** The zone the app's numbers were last built in. Another one in Settings means a rebuild is pending. */
+  derivedTimeZone: string | null
 }
+
+/**
+ * Whether any of these apps has numbers built in another time zone than `timeZone`: the zone was
+ * changed and the worker has not rebuilt them yet, so their daily rows still count the old days.
+ * An app never built has nothing to mix up.
+ */
+export const awaitingRebuild = (list: Pick<AppInfo, "derivedAt" | "derivedTimeZone">[], timeZone: string): boolean =>
+  list.some((a) => a.derivedAt !== null && a.derivedTimeZone !== timeZone)
 
 export async function listApps(db: Queryable): Promise<AppInfo[]> {
   const rows = await db
@@ -62,11 +73,21 @@ export async function listApps(db: Queryable): Promise<AppInfo[]> {
       firstEventAt: apps.firstEventAt,
       lastEventAt: apps.lastEventAt,
       derivedAt: apps.derivedAt,
+      derivedTimeZone: apps.derivedTimeZone,
     })
     .from(apps)
     .innerJoin(connections, eq(apps.connectionId, connections.id))
     .orderBy(asc(apps.name), asc(apps.id))
   return rows.map(({ name, ...r }) => ({ ...r, shopifyName: name, label: r.displayName?.trim() || name }))
+}
+
+/**
+ * The zone days are counted in, from Settings. UTC until one is saved, and UTC too if the saved
+ * one is unknown to this runtime, so the web server, the worker and the MCP endpoint always agree.
+ */
+export async function readTimeZone(db: Queryable): Promise<string> {
+  const [row] = await db.select({ timeZone: settings.timeZone }).from(settings).where(eq(settings.id, 1))
+  return normalizeTimeZone(row?.timeZone) ?? DEFAULT_TIME_ZONE
 }
 
 export async function earliestDate(db: Queryable, appIds: string[]): Promise<string | null> {
@@ -88,14 +109,14 @@ export async function getDayRows(db: Queryable, appIds: string[], range: Range):
 // Churn, retention, trials, plans
 // ---------------------------------------------------------------------------
 
-export async function getReasons(db: Queryable, appIds: string[], range: Range): Promise<{ reason: string; count: number }[]> {
+export async function getReasons(db: Queryable, appIds: string[], range: Range, timeZone: string): Promise<{ reason: string; count: number }[]> {
   if (appIds.length === 0) return []
   const rows = await db.execute<{ reason: string; n: number }>(sql`
     SELECT btrim(r) AS reason, count(*)::int AS n
     FROM installs i,
          LATERAL unnest(string_to_array(coalesce(nullif(i.reason, ''), 'No reason given'), ',')) AS r
     WHERE i.app_id IN ${inList(appIds)}
-      AND i.uninstalled_at >= ${ts(startOf(range.from))} AND i.uninstalled_at < ${ts(endOf(range.to))}
+      AND i.uninstalled_at >= ${ts(startOf(range.from, timeZone))} AND i.uninstalled_at < ${ts(endOf(range.to, timeZone))}
     GROUP BY 1
     ORDER BY n DESC, 1
   `)
@@ -105,24 +126,24 @@ export async function getReasons(db: Queryable, appIds: string[], range: Range):
 export type Explanation = { appId: string; shop: string; at: Date; reason: string | null; text: string }
 
 /** The merchants' own words on leaving, newest first. */
-export async function getExplanations(db: Queryable, appIds: string[], range: Range, limit = 20): Promise<Explanation[]> {
+export async function getExplanations(db: Queryable, appIds: string[], range: Range, timeZone: string, limit = 20): Promise<Explanation[]> {
   if (appIds.length === 0) return []
   const rows = await db
     .select({ appId: installs.appId, shop: installs.shop, at: installs.uninstalledAt, reason: installs.reason, text: installs.reasonDescription })
     .from(installs)
-    .where(and(inArray(installs.appId, appIds), sql`${installs.reasonDescription} IS NOT NULL`, gte(installs.uninstalledAt, startOf(range.from)), lt(installs.uninstalledAt, endOf(range.to))))
+    .where(and(inArray(installs.appId, appIds), sql`${installs.reasonDescription} IS NOT NULL`, gte(installs.uninstalledAt, startOf(range.from, timeZone)), lt(installs.uninstalledAt, endOf(range.to, timeZone))))
     .orderBy(desc(installs.uninstalledAt))
     .limit(limit)
   return rows.map((r) => ({ ...r, at: r.at as Date, text: r.text as string }))
 }
 
 /** The installs made in a range, for cohort retention. */
-export async function getStays(db: Queryable, appIds: string[], range: Range): Promise<{ installedAt: Date; uninstalledAt: Date | null }[]> {
+export async function getStays(db: Queryable, appIds: string[], range: Range, timeZone: string): Promise<{ installedAt: Date; uninstalledAt: Date | null }[]> {
   if (appIds.length === 0) return []
   return db
     .select({ installedAt: installs.installedAt, uninstalledAt: installs.uninstalledAt })
     .from(installs)
-    .where(and(inArray(installs.appId, appIds), gte(installs.installedAt, startOf(range.from)), lt(installs.installedAt, endOf(range.to))))
+    .where(and(inArray(installs.appId, appIds), gte(installs.installedAt, startOf(range.from, timeZone)), lt(installs.installedAt, endOf(range.to, timeZone))))
 }
 
 /**
@@ -131,11 +152,11 @@ export async function getStays(db: Queryable, appIds: string[], range: Range): P
  * one), at the first instant of the first day; the end is the last instant of the last day. An app with nobody at the start has no entry.
  * A shop that left and came back inside the range counts as kept: it has the app at the end.
  */
-export async function getRetention(db: Queryable, appIds: string[], range: Range): Promise<Map<string, Retention>> {
+export async function getRetention(db: Queryable, appIds: string[], range: Range, timeZone: string): Promise<Map<string, Retention>> {
   const out = new Map<string, Retention>()
   if (appIds.length === 0) return out
-  const t0 = ts(startOf(range.from))
-  const t1 = ts(endOf(range.to))
+  const t0 = ts(startOf(range.from, timeZone))
+  const t1 = ts(endOf(range.to, timeZone))
 
   const [installRows, subRows] = await Promise.all([
     db.execute<{ app_id: string; start_n: number; kept_n: number }>(sql`
@@ -191,7 +212,7 @@ export async function getRetention(db: Queryable, appIds: string[], range: Range
 export type LifetimeStats = { ended: number; open: number; medianDays: number | null; meanDays: number | null; within1Day: number; within7Days: number; within30Days: number }
 
 /** How long installs lasted, among those that ended in the range. */
-export async function getLifetimeStats(db: Queryable, appIds: string[], range: Range): Promise<LifetimeStats> {
+export async function getLifetimeStats(db: Queryable, appIds: string[], range: Range, timeZone: string): Promise<LifetimeStats> {
   if (appIds.length === 0) return { ended: 0, open: 0, medianDays: null, meanDays: null, within1Day: 0, within7Days: 0, within30Days: 0 }
   const [row] = await db.execute<{ ended: number; open: number; median: number | null; mean: number | null; d1: number; d7: number; d30: number }>(sql`
     SELECT
@@ -205,8 +226,8 @@ export async function getLifetimeStats(db: Queryable, appIds: string[], range: R
     FROM installs
     WHERE app_id IN ${inList(appIds)}
       AND (
-        (uninstalled_at >= ${ts(startOf(range.from))} AND uninstalled_at < ${ts(endOf(range.to))})
-        OR (uninstalled_at IS NULL AND installed_at < ${ts(endOf(range.to))})
+        (uninstalled_at >= ${ts(startOf(range.from, timeZone))} AND uninstalled_at < ${ts(endOf(range.to, timeZone))})
+        OR (uninstalled_at IS NULL AND installed_at < ${ts(endOf(range.to, timeZone))})
       )
   `)
   return {
@@ -223,14 +244,15 @@ export async function getLifetimeStats(db: Queryable, appIds: string[], range: R
 export type PlanMixRow = { planHandle: string; billingPeriod: string; subscribers: number; mrrCents: number }
 
 /** Who pays for which plan at the end of a day. Shops still in a trial are left out. */
-export async function getPlanMix(db: Db, appIds: string[], date: string): Promise<PlanMixRow[]> {
+export async function getPlanMix(db: Db, appIds: string[], date: string, timeZone: string): Promise<PlanMixRow[]> {
   if (appIds.length === 0) return []
+  const end = ts(endOf(date, timeZone))
   const rows = await db.execute<{ plan: string | null; period: string | null; n: number; mrr: string }>(sql`
     SELECT plan_handle AS plan, billing_period AS period, count(*)::int AS n, sum(monthly_cents)::bigint AS mrr
     FROM subscriptions
     WHERE app_id IN ${inList(appIds)} AND monthly_cents > 0
-      AND started_at < ${ts(endOf(date))} AND (ended_at IS NULL OR ended_at >= ${ts(endOf(date))})
-      AND (trial_ends_at IS NULL OR converted_at < ${ts(endOf(date))})
+      AND started_at < ${end} AND (ended_at IS NULL OR ended_at >= ${end})
+      AND (trial_ends_at IS NULL OR converted_at < ${end})
     GROUP BY 1, 2
     ORDER BY mrr DESC, 1, 2
   `)
@@ -240,7 +262,7 @@ export async function getPlanMix(db: Db, appIds: string[], date: string): Promis
 export type TrialStats = { started: number; converted: number; canceled: number; open: number; medianDaysToConvert: number | null }
 
 /** What became of the trials that started in a range. */
-export async function getTrialStats(db: Queryable, appIds: string[], range: Range): Promise<TrialStats> {
+export async function getTrialStats(db: Queryable, appIds: string[], range: Range, timeZone: string): Promise<TrialStats> {
   if (appIds.length === 0) return { started: 0, converted: 0, canceled: 0, open: 0, medianDaysToConvert: null }
   const [row] = await db.execute<{ started: number; converted: number; canceled: number; open: number; median: number | null }>(sql`
     SELECT
@@ -250,7 +272,7 @@ export async function getTrialStats(db: Queryable, appIds: string[], range: Rang
       count(*) FILTER (WHERE outcome = 'open')::int AS open,
       percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (resolved_at - started_at)) / 86400) FILTER (WHERE outcome = 'converted') AS median
     FROM trials
-    WHERE app_id IN ${inList(appIds)} AND started_at >= ${ts(startOf(range.from))} AND started_at < ${ts(endOf(range.to))}
+    WHERE app_id IN ${inList(appIds)} AND started_at >= ${ts(startOf(range.from, timeZone))} AND started_at < ${ts(endOf(range.to, timeZone))}
   `)
   return { started: row.started, converted: row.converted, canceled: row.canceled, open: row.open, medianDaysToConvert: row.median === null ? null : Number(row.median) }
 }
@@ -397,7 +419,8 @@ export type EventRow = {
 
 export type EventFilters = { type?: string; shop?: string; range?: Range; page?: number; pageSize?: number }
 
-export async function listEvents(db: Db, appIds: string[], filters: EventFilters = {}): Promise<{ rows: EventRow[]; total: number }> {
+/** `timeZone` says where a range's days begin and end. */
+export async function listEvents(db: Db, appIds: string[], timeZone: string, filters: EventFilters = {}): Promise<{ rows: EventRow[]; total: number }> {
   if (appIds.length === 0) return { rows: [], total: 0 }
   const pageSize = Math.min(200, Math.max(1, filters.pageSize ?? 50))
   const offset = (Math.max(1, filters.page ?? 1) - 1) * pageSize
@@ -405,7 +428,7 @@ export async function listEvents(db: Db, appIds: string[], filters: EventFilters
   const conditions: (SQL | undefined)[] = [inArray(events.appId, appIds)]
   if (filters.type) conditions.push(eq(events.type, filters.type))
   if (filters.shop?.trim()) conditions.push(ilike(events.shop, `%${escapeLike(filters.shop.trim())}%`))
-  if (filters.range) conditions.push(gte(events.occurredAt, startOf(filters.range.from)), lt(events.occurredAt, endOf(filters.range.to)))
+  if (filters.range) conditions.push(gte(events.occurredAt, startOf(filters.range.from, timeZone)), lt(events.occurredAt, endOf(filters.range.to, timeZone)))
   const where = and(...conditions)
 
   const [rows, [count]] = await Promise.all([

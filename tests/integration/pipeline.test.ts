@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { kpisFor, stocksAt } from "@/lib/analytics/aggregate"
 import {
@@ -16,12 +16,13 @@ import {
   listShops,
   getConnections,
   earliestDate,
+  readTimeZone,
 } from "@/lib/analytics/queries"
 import { cohortRetention } from "@/lib/analytics/aggregate"
 import { DERIVE_VERSION, derive } from "@/lib/analytics/derive"
 import { rebuildApp, rebuildStaleApps } from "@/lib/analytics/rebuild"
 import type { Database } from "@/lib/db/client"
-import { apps, connections, dailyMetrics, events, installs, subscriptions, syncRuns, trials } from "@/lib/db/schema"
+import { apps, connections, dailyMetrics, events, installs, settings, subscriptions, syncRuns, trials } from "@/lib/db/schema"
 import { generateDemoEvents } from "@/lib/demo/generate"
 import { createPartnerClient } from "@/lib/partner/client"
 import type { ParsedEvent } from "@/lib/partner/parse"
@@ -165,6 +166,33 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
       expect(await rebuildStaleApps(database.db, NOW)).toBe(0)
     })
 
+    it("rebuilds every app in the zone Settings names, and records the zone it was built in", async () => {
+      await load()
+      const zoneBuilt = async () => (await database.db.select({ zone: apps.derivedTimeZone }).from(apps))[0].zone
+      const span = async () =>
+        (await database.db.select({ first: sql<string>`min(${dailyMetrics.date})`, last: sql<string>`max(${dailyMetrics.date})`, days: sql<number>`count(*)::int` }).from(dailyMetrics))[0]
+      expect(await readTimeZone(database.db)).toBe("UTC")
+      expect(await zoneBuilt()).toBe("UTC")
+      expect(await span()).toEqual({ first: "2026-01-01", last: "2026-02-10", days: 41 })
+
+      // Kiritimati is UTC+14: the first event, 10:00 UTC on 1 Jan, is midnight on the 2nd there, and NOW is 02:00 on 11 Feb.
+      await database.db.insert(settings).values({ id: 1, timeZone: "Pacific/Kiritimati" })
+      expect(await readTimeZone(database.db)).toBe("Pacific/Kiritimati")
+      expect(await rebuildStaleApps(database.db, NOW)).toBe(1)
+      expect(await zoneBuilt()).toBe("Pacific/Kiritimati")
+      expect(await span()).toEqual({ first: "2026-01-02", last: "2026-02-11", days: 41 })
+      expect(await rebuildStaleApps(database.db, NOW)).toBe(0)
+    })
+
+    it("reads a saved zone this runtime does not know as UTC", async () => {
+      await database.db.insert(settings).values({ id: 1, timeZone: "Mars/Olympus_Mons" })
+      expect(await readTimeZone(database.db)).toBe("UTC")
+    })
+
+    it("keeps settings to one row", async () => {
+      await expect((async () => database.db.insert(settings).values({ id: 2, timeZone: "UTC" }))()).rejects.toThrow()
+    })
+
     it("keeps a real app name once it has one, and fills a missing key later", async () => {
       await insertEvents(database.db, connectionId, [pe("RELATIONSHIP_INSTALLED", "2026-01-01", "x.myshopify.com", { appName: null, appApiKey: null })])
       let [app] = await database.db.select().from(apps)
@@ -223,8 +251,8 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
 
     it("replaces the old rows on a rebuild rather than adding to them", async () => {
       await load()
-      await rebuildApp(database.db, appId, NOW)
-      await rebuildApp(database.db, appId, NOW)
+      await rebuildApp(database.db, appId, "UTC", NOW)
+      await rebuildApp(database.db, appId, "UTC", NOW)
       expect(await database.db.select().from(installs)).toHaveLength(5)
       expect(await database.db.select().from(dailyMetrics)).toHaveLength(41)
     })
@@ -320,14 +348,14 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
     it("returns nothing for no apps instead of everything", async () => {
       await load()
       expect(await getDayRows(database.db, [], range)).toEqual([])
-      expect(await getReasons(database.db, [], range)).toEqual([])
+      expect(await getReasons(database.db, [], range, "UTC")).toEqual([])
       expect((await listShops(database.db, [])).rows).toEqual([])
-      expect((await listEvents(database.db, [])).total).toBe(0)
+      expect((await listEvents(database.db, [], "UTC")).total).toBe(0)
     })
   })
 
   describe("what became of the starting shops", () => {
-    const retentionFor = async (range: { from: string; to: string }) => (await getRetention(database.db, [appId], range)).get(appId)
+    const retentionFor = async (range: { from: string; to: string }) => (await getRetention(database.db, [appId], range, "UTC")).get(appId)
 
     it("follows the shops that were there on the first day to the last", async () => {
       await load()
@@ -350,7 +378,7 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
 
     it("has nothing for a range that starts before anyone was there", async () => {
       await load()
-      expect((await getRetention(database.db, [appId], { from: "2026-01-01", to: "2026-02-10" })).has(appId)).toBe(false)
+      expect((await getRetention(database.db, [appId], { from: "2026-01-01", to: "2026-02-10" }, "UTC")).has(appId)).toBe(false)
     })
 
     it("does not count shops that joined during the range", async () => {
@@ -383,7 +411,7 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
     })
 
     it("returns nothing at all for no apps", async () => {
-      expect((await getRetention(database.db, [], { from: "2026-01-01", to: "2026-01-31" })).size).toBe(0)
+      expect((await getRetention(database.db, [], { from: "2026-01-01", to: "2026-01-31" }, "UTC")).size).toBe(0)
     })
   })
 
@@ -392,7 +420,7 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
 
     it("counts uninstall reasons, splitting a list and ranking by count", async () => {
       await load()
-      const reasons = await getReasons(database.db, [appId], range)
+      const reasons = await getReasons(database.db, [appId], range, "UTC")
       expect(reasons.find((r) => r.reason === "too_expensive")?.count).toBe(2)
       expect(reasons.find((r) => r.reason === "app_not_working")?.count).toBe(1)
       expect(reasons.find((r) => r.reason === "No reason given")?.count).toBe(1)
@@ -401,20 +429,35 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
 
     it("limits reasons to the range", async () => {
       await load()
-      const january = await getReasons(database.db, [appId], { from: "2026-01-01", to: "2026-01-31" })
+      const january = await getReasons(database.db, [appId], { from: "2026-01-01", to: "2026-01-31" }, "UTC")
       expect(january.find((r) => r.reason === "too_expensive")?.count).toBe(1)
+    })
+
+    it("bounds a range by midnight in the zone it is given", async () => {
+      await load()
+      // c uninstalled at 15:00 UTC on 3 Jan: still the 3rd in UTC, but 05:00 on the 4th in Kiritimati (UTC+14).
+      // d's uninstall, 12:00 UTC on the 4th, is 02:00 on the 5th there.
+      const day = (d: string) => ({ from: d, to: d })
+      const leftOn = async (d: string, zone: string) => (await getReasons(database.db, [appId], day(d), zone)).reduce((n, r) => n + r.count, 0)
+      expect(await leftOn("2026-01-03", "UTC")).toBe(1)
+      expect(await leftOn("2026-01-04", "UTC")).toBe(0)
+      expect(await leftOn("2026-01-03", "Pacific/Kiritimati")).toBe(0)
+      expect(await leftOn("2026-01-04", "Pacific/Kiritimati")).toBe(1)
+      const shopsOn = async (d: string, zone: string) => (await listEvents(database.db, [appId], zone, { range: day(d) })).rows.map((e) => e.shop)
+      expect(await shopsOn("2026-01-04", "UTC")).toEqual(["d.myshopify.com"])
+      expect(await shopsOn("2026-01-04", "Pacific/Kiritimati")).toEqual(["c.myshopify.com"])
     })
 
     it("lists what merchants wrote, with the shop, newest first", async () => {
       await load()
-      const words = await getExplanations(database.db, [appId], range)
+      const words = await getExplanations(database.db, [appId], range, "UTC")
       expect(words).toHaveLength(1)
       expect(words[0]).toMatchObject({ shop: "a.myshopify.com", reason: "too_expensive", text: "Too much for us" })
     })
 
     it("measures how long installs lasted", async () => {
       await load()
-      const stats = await getLifetimeStats(database.db, [appId], range)
+      const stats = await getLifetimeStats(database.db, [appId], range, "UTC")
       expect(stats.ended).toBe(3)
       expect(stats.open).toBe(2)
       expect(stats.within1Day).toBe(1) // c, the same day
@@ -424,9 +467,9 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
 
     it("feeds cohort retention from the installs of a range", async () => {
       await load()
-      const stays = await getStays(database.db, [appId], range)
+      const stays = await getStays(database.db, [appId], range, "UTC")
       expect(stays).toHaveLength(5)
-      const cohorts = cohortRetention(stays, "week", NOW)
+      const cohorts = cohortRetention(stays, "week", NOW, "UTC")
       expect(cohorts[0].cohort).toBe("2025-12-29")
       expect(cohorts[0].size).toBe(3) // a, b, c on 1 to 3 January
     })
@@ -440,23 +483,23 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
         pe("RELATIONSHIP_INSTALLED", "2026-01-02", "t.myshopify.com"),
         pe("SUBSCRIPTION_CREATED", "2026-01-02", "t.myshopify.com", monthly(5000, 14, "max")),
       ])
-      expect(await getPlanMix(database.db, [appId], "2026-01-05")).toEqual([
+      expect(await getPlanMix(database.db, [appId], "2026-01-05", "UTC")).toEqual([
         { planHandle: "pro", billingPeriod: "Monthly", subscribers: 1, mrrCents: 2000 },
         { planHandle: "yearly", billingPeriod: "Yearly", subscribers: 1, mrrCents: 2000 },
       ])
       // t's trial ends on 16 January and it starts paying.
-      expect((await getPlanMix(database.db, [appId], "2026-01-20"))[0]).toEqual({ planHandle: "max", billingPeriod: "Monthly", subscribers: 1, mrrCents: 5000 })
+      expect((await getPlanMix(database.db, [appId], "2026-01-20", "UTC"))[0]).toEqual({ planHandle: "max", billingPeriod: "Monthly", subscribers: 1, mrrCents: 5000 })
     })
 
     it("shows the plans of the whole history at its end", async () => {
       await load()
-      expect(await getPlanMix(database.db, [appId], "2026-01-09")).toEqual([{ planHandle: "pro", billingPeriod: "Monthly", subscribers: 1, mrrCents: 2000 }])
-      expect(await getPlanMix(database.db, [appId], "2026-02-10")).toEqual([{ planHandle: "basic", billingPeriod: "Monthly", subscribers: 1, mrrCents: 1000 }])
+      expect(await getPlanMix(database.db, [appId], "2026-01-09", "UTC")).toEqual([{ planHandle: "pro", billingPeriod: "Monthly", subscribers: 1, mrrCents: 2000 }])
+      expect(await getPlanMix(database.db, [appId], "2026-02-10", "UTC")).toEqual([{ planHandle: "basic", billingPeriod: "Monthly", subscribers: 1, mrrCents: 1000 }])
     })
 
     it("reports what became of trials, and how long converting took", async () => {
       await load()
-      const stats = await getTrialStats(database.db, [appId], range)
+      const stats = await getTrialStats(database.db, [appId], range, "UTC")
       expect(stats).toMatchObject({ started: 2, converted: 1, canceled: 1, open: 0 })
       expect(stats.medianDaysToConvert).toBeCloseTo(7, 1)
     })
@@ -514,7 +557,7 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
   describe("the event log", () => {
     it("lists events newest first, with a total", async () => {
       await load()
-      const { rows, total } = await listEvents(database.db, [appId], { pageSize: 5 })
+      const { rows, total } = await listEvents(database.db, [appId], "UTC", { pageSize: 5 })
       expect(total).toBe(history.length)
       expect(rows).toHaveLength(5)
       expect(rows[0].occurredAt.getTime()).toBeGreaterThanOrEqual(rows[1].occurredAt.getTime())
@@ -522,10 +565,10 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
 
     it("filters by type, by shop and by date, and pages through the rest", async () => {
       await load()
-      expect((await listEvents(database.db, [appId], { type: "RELATIONSHIP_UNINSTALLED" })).total).toBe(4)
-      expect((await listEvents(database.db, [appId], { shop: "e.my" })).total).toBe(4)
-      expect((await listEvents(database.db, [appId], { range: { from: "2026-01-04", to: "2026-01-04" } })).total).toBe(1)
-      const second = await listEvents(database.db, [appId], { pageSize: 10, page: 2 })
+      expect((await listEvents(database.db, [appId], "UTC", { type: "RELATIONSHIP_UNINSTALLED" })).total).toBe(4)
+      expect((await listEvents(database.db, [appId], "UTC", { shop: "e.my" })).total).toBe(4)
+      expect((await listEvents(database.db, [appId], "UTC", { range: { from: "2026-01-04", to: "2026-01-04" } })).total).toBe(1)
+      const second = await listEvents(database.db, [appId], "UTC", { pageSize: 10, page: 2 })
       expect(second.rows).toHaveLength(history.length - 10)
     })
 
@@ -689,7 +732,7 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
       const now = new Date("2026-06-15T12:00:00Z")
       const { events: generated, apps: demoApps } = generateDemoEvents({ now })
       for (const app of demoApps) {
-        expect(derive(generated.filter((e) => e.appGid === app.gid), now).ignoredAfterUninstall, app.name).toBe(0)
+        expect(derive(generated.filter((e) => e.appGid === app.gid), now, "UTC").ignoredAfterUninstall, app.name).toBe(0)
       }
     })
 

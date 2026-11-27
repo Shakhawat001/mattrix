@@ -114,7 +114,7 @@ describe.skipIf(!hasDatabase)("cohorts and win-back (Postgres)", () => {
 
     it("groups shops by the month they first paid and follows their MRR month by month", async () => {
       const ids = await load(history, NOW)
-      const rows = await getRevenueCohorts(database.db, [ids[APP_GID]], firstQuarter, NOW)
+      const rows = await getRevenueCohorts(database.db, [ids[APP_GID]], firstQuarter, "UTC", NOW)
 
       // January: a ($20) and b ($10, paying from its conversion on 17 Jan). They started with $30.
       //   end of Jan: a $20 + b $10 = $30 (100%)
@@ -148,7 +148,7 @@ describe.skipIf(!hasDatabase)("cohorts and win-back (Postgres)", () => {
 
     it("counts a shop that leaves and comes back as paying again", async () => {
       const ids = await load(history, NOW)
-      const [dec] = await getRevenueCohorts(database.db, [ids[APP_GID]], { from: "2025-12-01", to: "2025-12-31" }, NOW)
+      const [dec] = await getRevenueCohorts(database.db, [ids[APP_GID]], { from: "2025-12-01", to: "2025-12-31" }, "UTC", NOW)
       // f started with $25 on 20 Dec: paying at the end of December, gone at the end of January
       // (canceled on the 10th), paying again from 15 Feb through the end of April.
       expect(dec).toMatchObject({ cohort: "2025-12-01", shops: 1, startMrr: 2500 })
@@ -168,28 +168,28 @@ describe.skipIf(!hasDatabase)("cohorts and win-back (Postgres)", () => {
       )
       // g pays $20 from 5 Jan and leaves on 20 Feb. It returns on 25 Mar with a 14-day trial, which
       // is still running at the end of March and converts on 8 Apr.
-      const [jan] = await getRevenueCohorts(database.db, [ids[APP_GID]], firstQuarter, NOW)
+      const [jan] = await getRevenueCohorts(database.db, [ids[APP_GID]], firstQuarter, "UTC", NOW)
       expect(jan).toMatchObject({ cohort: "2026-01-01", shops: 1, startMrr: 2000 })
       expect(jan.cells.slice(0, 5).map((c) => c?.mrr ?? null)).toEqual([2000, 0, 0, 2000, null])
     })
 
     it("takes the cohorts from the range and the apps from the filter", async () => {
       const ids = await load(history, NOW)
-      expect((await getRevenueCohorts(database.db, [ids[APP_GID]], { from: "2026-02-01", to: "2026-02-28" }, NOW)).map((r) => r.cohort)).toEqual(["2026-02-01"])
+      expect((await getRevenueCohorts(database.db, [ids[APP_GID]], { from: "2026-02-01", to: "2026-02-28" }, "UTC", NOW)).map((r) => r.cohort)).toEqual(["2026-02-01"])
       // Only part of a month in the range: b first paid on 17 Jan, a on the 5th.
-      expect(await getRevenueCohorts(database.db, [ids[APP_GID]], { from: "2026-01-10", to: "2026-01-31" }, NOW)).toMatchObject([{ cohort: "2026-01-01", shops: 1, startMrr: 1000 }])
+      expect(await getRevenueCohorts(database.db, [ids[APP_GID]], { from: "2026-01-10", to: "2026-01-31" }, "UTC", NOW)).toMatchObject([{ cohort: "2026-01-01", shops: 1, startMrr: 1000 }])
 
       // The same shop in two apps is two customers: a's $9 in the other app joins January.
-      const both = await getRevenueCohorts(database.db, [ids[APP_GID], ids[OTHER_GID]], firstQuarter, NOW)
+      const both = await getRevenueCohorts(database.db, [ids[APP_GID], ids[OTHER_GID]], firstQuarter, "UTC", NOW)
       expect(both[0]).toMatchObject({ cohort: "2026-01-01", shops: 3, startMrr: 3900 })
       expect(both[0].cells.slice(0, 4).map((c) => c?.mrr)).toEqual([3900, 4900, 3900, 900])
-      expect((await getRevenueCohorts(database.db, [ids[OTHER_GID]], firstQuarter, NOW))[0]).toMatchObject({ shops: 1, startMrr: 900 })
+      expect((await getRevenueCohorts(database.db, [ids[OTHER_GID]], firstQuarter, "UTC", NOW))[0]).toMatchObject({ shops: 1, startMrr: 900 })
     })
 
     it("returns nothing for no apps, and for a range in which nobody first paid", async () => {
       const ids = await load(history, NOW)
-      expect(await getRevenueCohorts(database.db, [], firstQuarter, NOW)).toEqual([])
-      expect(await getRevenueCohorts(database.db, [ids[APP_GID]], { from: "2026-04-01", to: "2026-04-30" }, NOW)).toEqual([])
+      expect(await getRevenueCohorts(database.db, [], firstQuarter, "UTC", NOW)).toEqual([])
+      expect(await getRevenueCohorts(database.db, [ids[APP_GID]], { from: "2026-04-01", to: "2026-04-30" }, "UTC", NOW)).toEqual([])
     })
 
     it("counts a yearly plan at a twelfth of its price", async () => {
@@ -200,7 +200,7 @@ describe.skipIf(!hasDatabase)("cohorts and win-back (Postgres)", () => {
         ],
         NOW,
       )
-      const [jan] = await getRevenueCohorts(database.db, [ids[APP_GID]], firstQuarter, NOW)
+      const [jan] = await getRevenueCohorts(database.db, [ids[APP_GID]], firstQuarter, "UTC", NOW)
       expect(jan).toMatchObject({ shops: 1, startMrr: 2000 })
       expect(jan.cells[0]).toEqual({ mrr: 2000, shops: 1, share: 1 })
     })
@@ -247,7 +247,7 @@ describe.skipIf(!hasDatabase)("cohorts and win-back (Postgres)", () => {
       const ids = await load(history, NOW)
       // January: p, q and r left (t left in December; u's uninstall has no stay to end).
       // p came back after 7 days and q after 30, in February, which still counts. r did not.
-      const w = await getWinBack(database.db, [ids[APP_GID]], { from: "2026-01-01", to: "2026-01-31" })
+      const w = await getWinBack(database.db, [ids[APP_GID]], { from: "2026-01-01", to: "2026-01-31" }, "UTC")
       expect(w).toMatchObject({ left: 3, returned: 2, medianDays: 18.5 })
       expect(w.rate).toBeCloseTo(2 / 3)
       expect(shopsOf(w)).toEqual(["q", "p"])
@@ -260,13 +260,13 @@ describe.skipIf(!hasDatabase)("cohorts and win-back (Postgres)", () => {
     it("counts a shop once, from the first time it left in the range", async () => {
       const ids = await load(history, NOW)
       // February: s left on the 5th and q on the 20th; both came back, after 2 and 5 days.
-      const feb = await getWinBack(database.db, [ids[APP_GID]], { from: "2026-02-01", to: "2026-02-28" })
+      const feb = await getWinBack(database.db, [ids[APP_GID]], { from: "2026-02-01", to: "2026-02-28" }, "UTC")
       expect(feb).toMatchObject({ left: 2, returned: 2, rate: 1, medianDays: 3.5 })
       expect(shopsOf(feb)).toEqual(["q", "s"])
 
       // January and February together: p, q, r and s left. q is counted from 12 Jan, so its
       // return is the one on 11 Feb (30 days). The returns took 7, 30 and 2 days.
-      const both = await getWinBack(database.db, [ids[APP_GID]], { from: "2026-01-01", to: "2026-02-28" })
+      const both = await getWinBack(database.db, [ids[APP_GID]], { from: "2026-01-01", to: "2026-02-28" }, "UTC")
       expect(both).toMatchObject({ left: 4, returned: 3, rate: 0.75, medianDays: 7 })
       expect(shopsOf(both)).toEqual(["q", "s", "p"])
       expect(both.recent[0].days).toBe(30)
@@ -274,7 +274,7 @@ describe.skipIf(!hasDatabase)("cohorts and win-back (Postgres)", () => {
 
     it("keeps the count when the list is cut short", async () => {
       const ids = await load(history, NOW)
-      const w = await getWinBack(database.db, [ids[APP_GID]], { from: "2026-01-01", to: "2026-02-28" }, 1)
+      const w = await getWinBack(database.db, [ids[APP_GID]], { from: "2026-01-01", to: "2026-02-28" }, "UTC", 1)
       expect(w).toMatchObject({ left: 4, returned: 3 })
       expect(shopsOf(w)).toEqual(["q"])
     })
@@ -282,10 +282,10 @@ describe.skipIf(!hasDatabase)("cohorts and win-back (Postgres)", () => {
     it("has no rate and no median when nobody left, and nothing for no apps", async () => {
       const ids = await load(history, NOW)
       const none = { left: 0, returned: 0, rate: null, medianDays: null, recent: [] }
-      expect(await getWinBack(database.db, [ids[APP_GID]], { from: "2026-03-01", to: "2026-03-01" })).toEqual(none)
-      expect(await getWinBack(database.db, [], { from: "2026-01-01", to: "2026-01-31" })).toEqual(none)
+      expect(await getWinBack(database.db, [ids[APP_GID]], { from: "2026-03-01", to: "2026-03-01" }, "UTC")).toEqual(none)
+      expect(await getWinBack(database.db, [], { from: "2026-01-01", to: "2026-01-31" }, "UTC")).toEqual(none)
       // r left and never came back: a rate of zero and no median, not n/a for both.
-      expect(await getWinBack(database.db, [ids[APP_GID]], { from: "2026-01-15", to: "2026-01-15" })).toMatchObject({ left: 1, returned: 0, rate: 0, medianDays: null })
+      expect(await getWinBack(database.db, [ids[APP_GID]], { from: "2026-01-15", to: "2026-01-15" }, "UTC")).toMatchObject({ left: 1, returned: 0, rate: 0, medianDays: null })
     })
   })
 })

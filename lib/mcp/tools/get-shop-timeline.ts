@@ -114,7 +114,7 @@ export const getShopTimelineTool = defineTool({
         event_count: count(timeline.eventCount),
         events: timeline.events.map(event),
       },
-      { notes }
+      { timeZone: await ctx.timeZone(), notes }
     )
   },
 })

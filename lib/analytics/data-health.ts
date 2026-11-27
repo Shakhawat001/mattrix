@@ -1,4 +1,5 @@
 import { asc, inArray, sql, type SQL } from "drizzle-orm"
+import { startOfDay, todayIn } from "@/lib/time-zone"
 import type { Queryable } from "@/lib/db/client"
 import { apps, connections } from "@/lib/db/schema"
 import { parseTimestamp, parseTimestampOrNull } from "@/lib/db/timestamps"
@@ -100,7 +101,7 @@ export type ConnectionHealth = {
 }
 
 export type DataHealth = {
-  /** The months `perMonth` counts: the current UTC month and the eleven before it, oldest first, each as its first day (YYYY-MM-01). */
+  /** The months `perMonth` counts: the current month in the dashboard's time zone and the eleven before it, oldest first, each as its first day (YYYY-MM-01). */
   months: string[]
   /** The apps asked for that exist, in the order asked. */
   apps: AppHealth[]
@@ -122,10 +123,13 @@ const notExcluded = (shop: SQL): SQL => sql`NOT EXISTS (SELECT 1 FROM excluded_s
 type Stamp = string | Date
 
 /** How complete the data of these apps is, and how their connections' syncs went. */
-export async function getDataHealth(db: Queryable, appIds: string[], now: Date = new Date()): Promise<DataHealth> {
-  const year = now.getUTCFullYear()
-  const month = now.getUTCMonth()
+export async function getDataHealth(db: Queryable, appIds: string[], timeZone: string, now: Date = new Date()): Promise<DataHealth> {
+  // Months are counted on the dashboard's calendar: this month is the month of today there.
+  const [year, monthNumber] = todayIn(timeZone, now).split("-").map(Number)
+  const month = monthNumber - 1
   const months = Array.from({ length: MONTHS }, (_, i) => fromMs(Date.UTC(year, month - MONTHS + 1 + i, 1)))
+  const firstMonthStart = startOfDay(months[0], timeZone).getTime()
+  const nextMonthStart = startOfDay(fromMs(Date.UTC(year, month + 1, 1)), timeZone).getTime()
   if (appIds.length === 0) return { months, apps: [], connections: [] }
   const ids = inList(appIds)
 
@@ -141,9 +145,9 @@ export async function getDataHealth(db: Queryable, appIds: string[], now: Date =
       GROUP BY app_id, type
     `),
     db.execute<{ app_id: string; type: string; month: string; n: number }>(sql`
-      SELECT app_id, type, to_char(date_trunc('month', occurred_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS month, count(*)::int AS n
+      SELECT app_id, type, to_char(date_trunc('month', occurred_at AT TIME ZONE ${timeZone}), 'YYYY-MM-DD') AS month, count(*)::int AS n
       FROM events
-      WHERE app_id IN ${ids} AND occurred_at >= ${ts(Date.UTC(year, month - MONTHS + 1, 1))} AND occurred_at < ${ts(Date.UTC(year, month + 1, 1))}
+      WHERE app_id IN ${ids} AND occurred_at >= ${ts(firstMonthStart)} AND occurred_at < ${ts(nextMonthStart)}
       GROUP BY 1, 2, 3
     `),
     // On the same instant an install comes before an uninstall, as derive() reads them.

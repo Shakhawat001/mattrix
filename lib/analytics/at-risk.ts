@@ -32,7 +32,7 @@ type Plan = {
 export type SetToEnd = Plan & {
   /** When Shopify first said the subscription is canceled from a later day. */
   scheduledAt: Date
-  /** The start of the UTC day the cancel takes effect. It pays until then. */
+  /** The start of the day the cancel takes effect, in the dashboard's time zone. It pays until then. */
   endsAt: Date
 }
 

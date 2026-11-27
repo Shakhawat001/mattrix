@@ -72,7 +72,7 @@ describe("toolRange", () => {
     expect(refused({ to: "2026-11-01" })).toBe("Give both from and to (YYYY-MM-DD), or a preset.")
     expect(refused({ from: "2026-11-10", to: "2026-11-01" })).toBe("from (2026-11-10) is after to (2026-11-01).")
     expect(refused({ from: "2026-02-30", to: "2026-03-01" })).toBe("2026-02-30 is not a day. Write it as YYYY-MM-DD.")
-    expect(refused({ from: "2026-12-01", to: "2026-12-05" })).toBe("The range starts after today, 2026-11-22 (UTC). There is no data for it yet.")
+    expect(refused({ from: "2026-12-01", to: "2026-12-05" })).toBe("The range starts after today, 2026-11-22. There is no data for it yet.")
   })
 
   it("compares with the period before, the same days a year earlier, or nothing", () => {

@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { StatGrid } from "@/components/app/kpi-card"
 import { PageHeader } from "@/components/app/page-header"
+import { RebuildNotice } from "@/components/app/rebuild-notice"
 import { ChartCard } from "@/components/charts/chart-card"
 import { CohortTable } from "@/components/charts/cohort-table"
 import { RevenueCohortTable } from "@/components/charts/revenue-cohort-table"
@@ -28,11 +29,12 @@ export default async function RetentionPage({ params, searchParams }: { params: 
   // Weekly cohorts unless you asked for months: a day's worth of installs is too few to read a rate from.
   const unit = gran === "month" ? "month" : "week"
   const db = getDb()
-  const [stays, revenueCohorts] = await Promise.all([getStays(db, p.appIds, p.range), getRevenueCohorts(db, p.appIds, p.range, now)])
-  const cohorts = cohortRetention(stays, unit, now, 12)
+  const [stays, revenueCohorts] = await Promise.all([getStays(db, p.appIds, p.range, p.timeZone), getRevenueCohorts(db, p.appIds, p.range, p.timeZone, now)])
+  const cohorts = cohortRetention(stays, unit, now, p.timeZone, 12)
 
   return (
     <>
+      <RebuildNotice />
       <PageHeader level={2} title="Retention" description={`Who stayed and who left, ${formatRange(p.range)}.`} />
 
       <StatGrid ids={["nrr", "grr", "subChurnRate", "revenueChurnRate"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} />

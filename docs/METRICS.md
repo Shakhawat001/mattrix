@@ -4,7 +4,7 @@ This file is generated from `lib/analytics/metrics-registry.ts`, the same list t
 
 ## Conventions
 
-- **Days are UTC.** A day runs from 00:00 to 24:00 UTC and every time in the dashboard is shown in UTC. A range includes both of its end days.
+- **Days are in your time zone.** You pick the zone in Settings (it is UTC until you do). A day runs from midnight to midnight there, so on a daylight saving change it is 23 or 25 hours long, and every time in the dashboard is shown on that zone's clock. A range includes both of its end days. CSV exports give dates in the same zone and moments in UTC (ISO 8601).
 - **Money is stored in cents and shown in US dollars.** Shopify charges for apps are in US dollars.
 - **Monthly value.** A yearly price counts as a twelfth of itself each month. Every MRR figure uses it.
 - **A subscriber is a shop paying for a plan.** A plan priced at $0 is not one, and neither is a free trial until it converts, so MRR leaves trials out (the usual SaaS definition, used by ChartMogul, Baremetrics and Stripe). Trials are counted on their own: In trial, MRR in trial and trial conversion.

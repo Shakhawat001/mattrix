@@ -53,12 +53,12 @@ export const listShopsTool = defineTool({
     const appIds = apps.map((a) => a.id)
     const page = input.page ?? 1
     const pageSize = input.page_size ?? DEFAULT_PAGE_SIZE
-    const notes = await sourceNotes(ctx, apps)
+    const [notes, timeZone] = await Promise.all([sourceNotes(ctx, apps), ctx.timeZone()])
     const answer = (rows: ShopRow[], total: number) => {
       const pages = Math.ceil(total / pageSize)
       return envelope(
         { apps: appList(apps), page, page_size: pageSize, pages, next_page: page < pages ? page + 1 : null, total: count(total), rows: rows.map(row) },
-        { notes }
+        { timeZone, notes }
       )
     }
 

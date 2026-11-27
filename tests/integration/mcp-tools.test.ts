@@ -9,7 +9,8 @@ import { addExcludedShop, removeExcludedShop } from "@/lib/analytics/excluded-sh
 import { AT_RISK_METRICS, METRICS, type MetricId } from "@/lib/analytics/metrics-registry"
 import { getMrrMovers } from "@/lib/analytics/mrr-movers"
 import { getDayRows, getExplanations, getLifetimeStats, getReasons, getRetention, getStays, getTrialStats, listApps, listShops } from "@/lib/analytics/queries"
-import { addDays, previousRange, todayUtc, type Range } from "@/lib/analytics/range"
+import { addDays, previousRange, type Range } from "@/lib/analytics/range"
+import { todayIn } from "@/lib/time-zone"
 import { rebuildApp, rebuildStaleApps } from "@/lib/analytics/rebuild"
 import { getRevenueCohorts } from "@/lib/analytics/revenue-cohorts"
 import { getShopTimeline } from "@/lib/analytics/shop-timeline"
@@ -53,7 +54,7 @@ describe.skipIf(!hasDatabase)("MCP tools on demo data (Postgres)", () => {
   let ids: string[]
   let plain: string
   let hidden: string
-  const today = todayUtc()
+  const today = todayIn("UTC")
   const alias = (domain: string) => shopAlias(SECRET, domain)
 
   async function call(name: string, args: Record<string, unknown> = {}, token = plain): Promise<Answer> {
@@ -72,7 +73,7 @@ describe.skipIf(!hasDatabase)("MCP tools on demo data (Postgres)", () => {
     const db = database.db
     const from = compared && compared.from < range.from ? compared.from : range.from
     const rows = await getDayRows(db, appIds, { from, to: range.to })
-    const together = async (r: Range) => addRetention([...(await getRetention(db, appIds, r)).values()])
+    const together = async (r: Range) => addRetention([...(await getRetention(db, appIds, r, "UTC")).values()])
     return { rows, kpis: kpisFor(rows, range, await together(range)), compared: compared ? kpisFor(rows, compared, await together(compared)) : null }
   }
 
@@ -220,7 +221,7 @@ describe.skipIf(!hasDatabase)("MCP tools on demo data (Postgres)", () => {
       const range = { from: addDays(today, -89), to: today }
       const answer = await call("explain_mrr_change", { ...range, limit: 3 })
       const { kpis } = await dashboard(ids, range)
-      const { moves } = await getMrrMovers(database.db, ids, range)
+      const { moves } = await getMrrMovers(database.db, ids, range, "UTC")
       expect(answer.data.mrr_at_start.cents).toBe(kpis.mrrStart)
       expect(answer.data.mrr_at_end.cents).toBe(kpis.mrr)
       expect(answer.data.net_new_mrr.cents).toBe(kpis.mrr - kpis.mrrStart)
@@ -251,19 +252,19 @@ describe.skipIf(!hasDatabase)("MCP tools on demo data (Postgres)", () => {
       }
       expect(answer.data.by_cause.map((m: Answer) => m.id)).toContain("churnedMrrMerchantLeft")
 
-      const reasons = await getReasons(database.db, ids, range)
+      const reasons = await getReasons(database.db, ids, range, "UTC")
       expect(answer.data.reasons.map((r: Answer) => [r.reason, r.uninstalls.count])).toEqual(reasons.map((r) => [r.reason, r.count]))
 
-      const comments = await getExplanations(database.db, ids, range, 4)
+      const comments = await getExplanations(database.db, ids, range, "UTC", 4)
       expect(comments.length).toBe(4)
       expect(answer.data.comments.more).toBe(true)
       expect(answer.data.comments.list.map((c: Answer) => [c.shop, c.merchant_text_untrusted])).toEqual(comments.slice(0, 3).map((c) => [c.shop, c.text]))
 
-      const life = await getLifetimeStats(database.db, ids, range)
+      const life = await getLifetimeStats(database.db, ids, range, "UTC")
       expect(answer.data.install_lifetime).toMatchObject({ uninstalled: { count: life.ended }, still_installed: { count: life.open } })
       expect(answer.data.install_lifetime.lasted.reduce((sum: number, b: Answer) => sum + b.shops.count, 0)).toBe(life.ended)
 
-      const winBack = await getWinBack(database.db, ids, range, 2)
+      const winBack = await getWinBack(database.db, ids, range, "UTC", 2)
       expect(answer.data.win_back.left.count).toBe(winBack.left)
       expect(answer.data.win_back.metrics.map((m: Answer) => m.value)).toEqual([valueOf("installs", winBack.returned), metricValue(winBack.rate, "percent"), metricValue(winBack.medianDays, "days")])
       expect(answer.data.win_back.latest_returns.map((r: Answer) => r.shop)).toEqual(winBack.recent.map((r) => r.shop))
@@ -277,7 +278,7 @@ describe.skipIf(!hasDatabase)("MCP tools on demo data (Postgres)", () => {
       const { kpis } = await dashboard(ids, range)
       for (const m of answer.data.metrics) expect(m.value, m.id).toEqual(valueOf(m.id, kpis[m.id as MetricId]))
 
-      const started = await getTrialStats(database.db, ids, range)
+      const started = await getTrialStats(database.db, ids, range, "UTC")
       expect(answer.data.started_in_range).toMatchObject({ started: { count: started.started }, converted: { count: started.converted }, canceled: { count: started.canceled }, still_running: { count: started.open } })
 
       const open = answer.data.open_trials
@@ -301,17 +302,17 @@ describe.skipIf(!hasDatabase)("MCP tools on demo data (Postgres)", () => {
       const { kpis } = await dashboard(ids, range)
       for (const m of answer.data.metrics) expect(m.value, m.id).toEqual(valueOf(m.id, kpis[m.id as MetricId]))
 
-      const start = addRetention([...(await getRetention(database.db, ids, range)).values()])
+      const start = addRetention([...(await getRetention(database.db, ids, range, "UTC")).values()])
       expect(answer.data.starting_group).toMatchObject({ installs_at_start: { count: start.startInstalls }, subscribers_kept: { count: start.keptSubs }, mrr_at_start: { cents: start.startMrr }, mrr_kept: { cents: start.keptMrr } })
 
       const passed = <T>(cells: (T | null)[]) => cells.filter((c): c is T => c !== null)
-      const installs = cohortRetention(await getStays(database.db, ids, range), "week", new Date(), 12)
+      const installs = cohortRetention(await getStays(database.db, ids, range, "UTC"), "week", new Date(), "UTC", 12)
       expect(answer.data.install_cohorts.by).toBe("week")
       expect(answer.data.install_cohorts.cohorts.map((c: Answer) => [c.cohort, c.installs.count, c.still_installed.map((s: Answer) => s.ratio)])).toEqual(
         installs.map((c) => [c.cohort, c.size, passed(c.cells).map((s) => percent(s)!.ratio)])
       )
 
-      const revenue = await getRevenueCohorts(database.db, ids, range, new Date())
+      const revenue = await getRevenueCohorts(database.db, ids, range, "UTC", new Date())
       expect(revenue.length).toBeGreaterThanOrEqual(3)
       expect(answer.data.revenue_cohorts.cohorts.map((c: Answer) => [c.cohort, c.shops.count, c.mrr_at_start.cents, c.months.map((m: Answer) => m.mrr.cents)])).toEqual(
         revenue.map((c) => [c.cohort, c.shops, c.startMrr, passed(c.cells).map((m) => m.mrr)])
@@ -418,7 +419,7 @@ describe.skipIf(!hasDatabase)("MCP tools on demo data (Postgres)", () => {
       await database.db.update(apps).set({ hidden: true }).where(eq(apps.id, ids[2]))
       try {
         const answer = await call("get_data_health")
-        const expected = await getDataHealth(database.db, [ids[0], ids[1]], new Date())
+        const expected = await getDataHealth(database.db, [ids[0], ids[1]], "UTC", new Date())
         expect(answer.data.hidden_apps.count).toBe(1)
         expect(answer.notes).toContain("1 app is hidden in Settings and left out, as on the dashboard.")
         expect(answer.data.apps.map((a: Answer) => [a.id, a.events.count, a.event_types.length])).toEqual(expected.apps.map((a) => [a.appId, a.eventCount, a.eventTypes.length]))
@@ -455,7 +456,7 @@ describe.skipIf(!hasDatabase)("MCP tools on demo data (Postgres)", () => {
 
     afterAll(async () => {
       await database.db.delete(events).where(inArray(events.id, added.map((e) => e.id)))
-      for (const id of ids) await rebuildApp(database.db, id, new Date())
+      for (const id of ids) await rebuildApp(database.db, id, "UTC", new Date())
     })
 
     it("returns the at-risk card's three lists, equal to the dashboard's read at the same moment", async () => {

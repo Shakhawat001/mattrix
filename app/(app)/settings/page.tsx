@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import { PageHeader } from "@/components/app/page-header"
+import { RebuildNotice } from "@/components/app/rebuild-notice"
 import { AddConnectionForm } from "@/components/settings/add-connection-form"
 import { Annotations } from "@/components/settings/annotations"
 import { ApiTokensSection } from "@/components/settings/api-tokens-section"
@@ -7,19 +8,21 @@ import { AppForm } from "@/components/settings/app-form"
 import { ConnectionActions } from "@/components/settings/connection-actions"
 import { ExcludedShops } from "@/components/settings/excluded-shops"
 import { SignOutEverywhere } from "@/components/settings/sign-out-everywhere"
+import { TimeZoneForm, type ZoneOption } from "@/components/settings/time-zone-form"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ALL_APPS, FIRST_ANNOTATION_DATE, lastAnnotationDate, listAnnotations } from "@/lib/analytics/annotations"
 import { listExcludedShops } from "@/lib/analytics/excluded-shops"
 import { getConnections, type ConnectionOverview } from "@/lib/analytics/queries"
-import { addDays, formatDate, todayUtc } from "@/lib/analytics/range"
-import { getApps } from "@/lib/analytics/scope"
+import { addDays, formatDate } from "@/lib/analytics/range"
+import { getApps, getTimeZone } from "@/lib/analytics/scope"
 import { appColors, swatchColor } from "@/lib/analytics/series"
 import { requireSession } from "@/lib/auth/dal"
 import { countActiveSessions } from "@/lib/auth/sessions"
 import { getDb } from "@/lib/db/client"
 import { getEnv } from "@/lib/env"
 import { formatAgo, formatDateTime, formatInt } from "@/lib/format"
+import { dayIn, describeTimeZone, timeZoneNames, todayIn } from "@/lib/time-zone"
 
 export const metadata: Metadata = { title: "Settings" }
 
@@ -45,16 +48,19 @@ const Detail = ({ label, children }: { label: string; children: React.ReactNode 
 export default async function SettingsPage() {
   await requireSession()
   const db = getDb()
-  const [connections, apps, sessions] = await Promise.all([getConnections(db), getApps(), countActiveSessions(db)])
+  const [connections, apps, sessions, timeZone] = await Promise.all([getConnections(db), getApps(), countActiveSessions(db), getTimeZone()])
   const excludedShops = await listExcludedShops(db)
   const annotations = await listAnnotations(db)
   const env = getEnv()
   const colors = appColors(apps)
   const now = new Date()
+  // Each zone with its offset today, so a city that is hard to place still says where its clock is.
+  const zones: ZoneOption[] = timeZoneNames().map((zone) => ({ value: zone, label: describeTimeZone(zone, now) }))
 
   return (
     <>
-      <PageHeader description="Where the numbers come from, how your apps appear, and who is signed in." />
+      <RebuildNotice />
+      <PageHeader description="Where the numbers come from, how your apps appear, which time zone days are counted in, and who is signed in." />
 
       <section aria-labelledby="connections" className="flex flex-col gap-4">
         <h2 id="connections" className="font-heading text-base font-medium">
@@ -88,12 +94,13 @@ export default async function SettingsPage() {
                       </Detail>
                       <Detail label="API version">{c.apiVersion}</Detail>
                       <Detail label="Reads">{c.appGids.length > 0 ? `${c.appGids.length} chosen apps` : "Every app"}</Detail>
+                      {/* A date kept as midnight UTC of it, so it is read back as that date. */}
                       <Detail label="History from">{formatDate(c.backfillFrom.toISOString().slice(0, 10))}</Detail>
                     </>
                   )}
                   <Detail label="Apps">{formatInt(c.apps)}</Detail>
                   <Detail label="Events stored">{formatInt(c.events)}</Detail>
-                  {c.lastOkAt ? <Detail label="Last good sync">{formatDateTime(c.lastOkAt)}</Detail> : null}
+                  {c.lastOkAt ? <Detail label="Last good sync">{formatDateTime(c.lastOkAt, timeZone)}</Detail> : null}
                 </dl>
 
                 {c.lastError ? (
@@ -127,7 +134,7 @@ export default async function SettingsPage() {
                       <TableBody>
                         {c.runs.map((r) => (
                           <TableRow key={r.id}>
-                            <TableCell className="text-muted-foreground tabular-nums">{formatDateTime(r.startedAt)}</TableCell>
+                            <TableCell className="text-muted-foreground tabular-nums">{formatDateTime(r.startedAt, timeZone)}</TableCell>
                             <TableCell className="text-muted-foreground">{r.trigger === "manual" ? "You" : r.trigger === "startup" ? "First run" : "Schedule"}</TableCell>
                             <TableCell className="max-w-72 truncate" title={r.error ?? undefined}>
                               {r.ok === null ? "Running" : r.ok ? "Succeeded" : `Failed${r.error ? `: ${r.error}` : ""}`}
@@ -153,7 +160,7 @@ export default async function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <AddConnectionForm defaultFrom={addDays(todayUtc(), -365 * 3)} />
+            <AddConnectionForm defaultFrom={addDays(todayIn(timeZone, now), -365 * 3)} />
           </CardContent>
         </Card>
       </section>
@@ -178,12 +185,12 @@ export default async function SettingsPage() {
         </Card>
       </section>
 
-      <ExcludedShops shops={excludedShops.map((s) => ({ shop: s.shop, note: s.note, added: formatDate(s.createdAt.toISOString().slice(0, 10)) }))} />
+      <ExcludedShops shops={excludedShops.map((s) => ({ shop: s.shop, note: s.note, added: formatDate(dayIn(s.createdAt, timeZone)) }))} />
 
       <Annotations
         annotations={annotations.map((a) => ({ id: a.id, date: formatDate(a.date), app: a.appId === null ? null : (apps.find((p) => p.id === a.appId)?.label ?? "Unknown app"), label: a.label, note: a.note }))}
         apps={[{ value: ALL_APPS, label: "All apps" }, ...apps.map((a) => ({ value: a.id, label: a.label }))]}
-        dates={{ initial: todayUtc(now), min: FIRST_ANNOTATION_DATE, max: lastAnnotationDate(todayUtc(now)) }}
+        dates={{ initial: todayIn(timeZone, now), min: FIRST_ANNOTATION_DATE, max: lastAnnotationDate(todayIn(timeZone, now)) }}
       />
 
       <ApiTokensSection />
@@ -197,9 +204,10 @@ export default async function SettingsPage() {
             <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
               <Detail label="Signed in now">{formatInt(sessions)} {sessions === 1 ? "browser" : "browsers"}</Detail>
               <Detail label="Reads Shopify">{env.demoMode ? "Never (demo mode)" : `Every ${env.syncIntervalMinutes} minutes`}</Detail>
-              <Detail label="Days end at">Midnight UTC</Detail>
-              <Detail label="Times shown in">UTC</Detail>
+              <Detail label="Days end at">Midnight, {describeTimeZone(timeZone, now)}</Detail>
+              <Detail label="Times shown in">{describeTimeZone(timeZone, now)}</Detail>
             </dl>
+            <TimeZoneForm current={timeZone} zones={zones} />
             <div>
               <SignOutEverywhere />
             </div>

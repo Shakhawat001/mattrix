@@ -37,13 +37,13 @@ export type RangeNumbers = {
 }
 
 /** The KPIs of the apps for a range and for the range it is compared with, from the reads and sums loadDashboard uses. */
-export async function readRangeNumbers(db: Queryable, appIds: string[], range: Range, compared: Range | null): Promise<RangeNumbers> {
+export async function readRangeNumbers(db: Queryable, appIds: string[], range: Range, compared: Range | null, timeZone: string): Promise<RangeNumbers> {
   // One read covers the range and the comparison range, and the day before each.
   const from = compared && compared.from < range.from ? compared.from : range.from
   const [rows, retentionByApp, comparedByApp] = await Promise.all([
     getDayRows(db, appIds, { from, to: range.to }),
-    getRetention(db, appIds, range),
-    compared ? getRetention(db, appIds, compared) : null,
+    getRetention(db, appIds, range, timeZone),
+    compared ? getRetention(db, appIds, compared, timeZone) : null,
   ])
   const retention = addRetention([...retentionByApp.values()])
   return {

@@ -2,7 +2,8 @@ import { sql, type SQL } from "drizzle-orm"
 import type { Queryable } from "@/lib/db/client"
 import { parseTimestamp, parseTimestampOrNull } from "@/lib/db/timestamps"
 import type { SubscriptionRow } from "./derive"
-import { toMs, type Range } from "./range"
+import { dayIn, endOfDay, startOfDay } from "@/lib/time-zone"
+import type { Range } from "./range"
 
 // The shops behind each MRR movement in a range: who started paying, who moved to a pricier
 // or a cheaper plan, and who stopped paying. It reads the subscription periods derive() wrote
@@ -10,8 +11,6 @@ import { toMs, type Range } from "./range"
 // apps and range the amounts here add up exactly to the rollup's new, expansion, contraction
 // and churned MRR, and the new and churned moves to its new and canceled subscribers.
 // tests/mrr-movers.test.ts holds the two side by side on generated histories.
-
-const DAY_MS = 86_400_000
 
 export type MrrMoveKind = "new" | "expansion" | "contraction" | "churned"
 
@@ -25,7 +24,7 @@ export type MrrMove = {
   /** When it happened: the shop started paying, changed plan, or stopped paying. */
   at: Date
   /**
-   * The UTC day the daily rollup counts it on: the day of `at`, except that a move dated after the
+   * The day the daily rollup counts it on, in the dashboard's time zone: the day of `at`, except that a move dated after the
    * last rebuild (an event stamped later than the clock that built the rollup) counts on the
    * rollup's last day, as it does there.
    */
@@ -99,9 +98,10 @@ const planOf = (p: MoverPeriod): MrrMovePlan => ({ planHandle: p.planHandle, bil
 /**
  * Every MRR move in one app's subscription periods, in no particular order. `lastDay` is the
  * app's last day in the rollup; a later move is dated on it. Nothing can move before an app's
- * first event, which is its first day in the rollup, so only the end needs this.
+ * first event, which is its first day in the rollup, so only the end needs this. Days are days in
+ * `timeZone`, as the rollup counts them.
  */
-export function movesFromPeriods(appId: string, periods: MoverPeriod[], lastDay: string | null): MrrMove[] {
+export function movesFromPeriods(appId: string, periods: MoverPeriod[], lastDay: string | null, timeZone: string): MrrMove[] {
   const byShop = new Map<string, MoverPeriod[]>()
   for (const p of periods) {
     const list = byShop.get(p.shop)
@@ -110,7 +110,7 @@ export function movesFromPeriods(appId: string, periods: MoverPeriod[], lastDay:
   }
 
   const dayOf = (ms: number) => {
-    const day = new Date(ms).toISOString().slice(0, 10)
+    const day = dayIn(ms, timeZone)
     return lastDay !== null && day > lastDay ? lastDay : day
   }
 
@@ -186,13 +186,13 @@ const ts = (ms: number): SQL => sql`${new Date(ms).toISOString()}::timestamptz`
 const KIND_ORDER: Record<MrrMoveKind, number> = { churned: 0, contraction: 1, expansion: 2, new: 3 }
 
 /**
- * The MRR moves of the apps in a range (UTC days, both ends included), oldest first, with their
- * totals. The totals equal the rollup's flows for the same apps and range.
+ * The MRR moves of the apps in a range (days in `timeZone`, both ends included), oldest first, with
+ * their totals. The totals equal the rollup's flows for the same apps and range.
  */
-export async function getMrrMovers(db: Queryable, appIds: string[], range: Range): Promise<MrrMovers> {
+export async function getMrrMovers(db: Queryable, appIds: string[], range: Range, timeZone: string): Promise<MrrMovers> {
   if (appIds.length === 0) return { range, totals: sumMoves([]), moves: [] }
-  const start = toMs(range.from)
-  const end = toMs(range.to) + DAY_MS
+  const start = startOfDay(range.from, timeZone).getTime()
+  const end = endOfDay(range.to, timeZone).getTime()
 
   // Every period of each shop that had a period running in the range, so a move's neighbors (the
   // plan before a change, the plan after a cancel) are always at hand. When the range reaches an
@@ -239,7 +239,7 @@ export async function getMrrMovers(db: Queryable, appIds: string[], range: Range
 
   const appOrder = new Map(appIds.map((id, i) => [id, i]))
   const moves = [...byApp]
-    .flatMap(([appId, app]) => movesFromPeriods(appId, app.periods, app.lastDay))
+    .flatMap(([appId, app]) => movesFromPeriods(appId, app.periods, app.lastDay, timeZone))
     .filter((m) => m.date >= range.from && m.date <= range.to)
     .sort(
       (a, b) =>

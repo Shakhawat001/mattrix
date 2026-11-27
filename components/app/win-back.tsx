@@ -3,12 +3,13 @@ import { COHORT_METRICS, type CohortMetricId } from "@/lib/analytics/metrics-reg
 import { formatDate } from "@/lib/analytics/range"
 import type { WinBack } from "@/lib/analytics/win-back"
 import { formatDays, formatInt, formatValue } from "@/lib/format"
+import { dayIn } from "@/lib/time-zone"
 import { MetricHint } from "./metric-hint"
 
-const day = (d: Date) => formatDate(d.toISOString().slice(0, 10))
 
 /** The shops that uninstalled in the range and came back: how many, what share, how soon, and the latest of them. */
-export function WinBackCard({ data }: { data: WinBack }) {
+export function WinBackCard({ data, timeZone }: { data: WinBack; timeZone: string }) {
+  const day = (d: Date) => formatDate(dayIn(d, timeZone))
   const stats: { id: CohortMetricId; value: number | null }[] = [
     { id: "wonBack", value: data.returned },
     { id: "winBackRate", value: data.rate },

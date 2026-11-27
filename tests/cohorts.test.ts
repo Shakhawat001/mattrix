@@ -35,7 +35,7 @@ describe("revenue cohort rows", () => {
   it("shows a month on its last day, as the install cohorts do", () => {
     const today = "2026-01-31"
     const [revenue] = revenueCohortRows([{ cohort: "2026-01-01", shops: 1, startMrr: 1000 }], [{ cohort: "2026-01-01", k: 0, shops: 1, mrr: 1000 }], today, 2)
-    const [installs] = cohortRetention([{ installedAt: new Date("2026-01-05T12:00:00Z"), uninstalledAt: null }], "month", new Date(`${today}T12:00:00Z`), 2)
+    const [installs] = cohortRetention([{ installedAt: new Date("2026-01-05T12:00:00Z"), uninstalledAt: null }], "month", new Date(`${today}T12:00:00Z`), "UTC", 2)
     expect(revenue.cells.map((c) => c !== null)).toEqual(installs.cells.map((c) => c !== null))
     expect(revenue.cells.map((c) => c !== null)).toEqual([true, false])
   })

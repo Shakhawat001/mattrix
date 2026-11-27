@@ -1,3 +1,4 @@
+import { dayIn, startOfDay, todayIn } from "@/lib/time-zone"
 import { addDays, bucketKey, bucketsIn, nextBucket, toMs, type Granularity, type Range } from "./range"
 
 // Everything the dashboard computes from the daily rollup, as pure functions of rows.
@@ -275,18 +276,20 @@ export type CohortRow = { cohort: string; size: number; cells: (number | null)[]
 /**
  * Of the shops that installed in each week (or month), what share was still installed
  * at the end of week 0, week 1, week 2 and on. A cell is empty until that period has
- * fully passed for the cohort, so a recent cohort has a short row.
+ * fully passed for the cohort, so a recent cohort has a short row. Weeks and months are
+ * counted in the dashboard's time zone.
  */
 export function cohortRetention(
   stays: { installedAt: Date; uninstalledAt: Date | null }[],
   granularity: "week" | "month",
   now: Date,
+  timeZone: string,
   periods = 12,
 ): CohortRow[] {
-  const today = now.toISOString().slice(0, 10)
+  const today = todayIn(timeZone, now)
   const cohorts = new Map<string, { installedAt: Date; uninstalledAt: Date | null }[]>()
   for (const stay of stays) {
-    const key = bucketKey(stay.installedAt.toISOString().slice(0, 10), granularity)
+    const key = bucketKey(dayIn(stay.installedAt, timeZone), granularity)
     const list = cohorts.get(key)
     if (list) list.push(stay)
     else cohorts.set(key, [stay])
@@ -302,7 +305,7 @@ export function cohortRetention(
         if (periodEnd > addDays(today, 1)) {
           cells.push(null)
         } else {
-          const endMs = toMs(periodEnd)
+          const endMs = startOfDay(periodEnd, timeZone).getTime()
           const kept = members.filter((m) => m.uninstalledAt === null || m.uninstalledAt.getTime() >= endMs).length
           cells.push(kept / members.length)
         }

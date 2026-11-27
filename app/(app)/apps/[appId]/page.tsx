@@ -4,6 +4,7 @@ import { AT_RISK_ROWS, AtRiskCard } from "@/components/app/at-risk"
 import { ExportLink } from "@/components/app/export-link"
 import { StatGrid } from "@/components/app/kpi-card"
 import { PageHeader } from "@/components/app/page-header"
+import { RebuildNotice } from "@/components/app/rebuild-notice"
 import { PlanMix } from "@/components/app/plan-mix"
 import { BarList } from "@/components/charts/bar-list"
 import { ChartCard } from "@/components/charts/chart-card"
@@ -28,11 +29,12 @@ export default async function AppOverviewPage({ params, searchParams }: { params
   const { params: p, rows, points, kpis, comparedKpis, caption, comparison, now } = d
   const gran = p.granularity
   const db = getDb()
-  const [plans, reasons, atRisk] = await Promise.all([getPlanMix(db, [appId], p.range.to), getReasons(db, [appId], p.range), getAtRisk(db, [appId], now, AT_RISK_ROWS)])
+  const [plans, reasons, atRisk] = await Promise.all([getPlanMix(db, [appId], p.range.to, p.timeZone), getReasons(db, [appId], p.range, p.timeZone), getAtRisk(db, [appId], now, AT_RISK_ROWS)])
   const carry = carriedFrom(query)
 
   return (
     <>
+      <RebuildNotice />
       <PageHeader
         level={2}
         title="Overview"
@@ -43,7 +45,7 @@ export default async function AppOverviewPage({ params, searchParams }: { params
       <StatGrid ids={["mrr", "activeSubs", "trialSubs", "activeInstalls"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} />
       <StatGrid ids={["netNewMrr", "nrr", "subChurnRate", "trialConversion"]} kpis={kpis} compared={comparedKpis} caption={caption} points={points} />
 
-      <AtRiskCard data={atRisk} carry={carry} />
+      <AtRiskCard data={atRisk} carry={carry} timeZone={p.timeZone} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard title="MRR" description="Monthly recurring revenue at the end of each period." data={single(rows, p.range, gran, { key: "mrr", label: "MRR", color: slotColor(0), read: readers.mrr }, "money", comparison)} kind="area" granularity={gran} />

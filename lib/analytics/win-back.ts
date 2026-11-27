@@ -1,7 +1,8 @@
 import { sql, type SQL } from "drizzle-orm"
 import type { Queryable } from "@/lib/db/client"
 import { parseTimestamp } from "@/lib/db/timestamps"
-import { toMs, type Range } from "./range"
+import { endOfDay, startOfDay } from "@/lib/time-zone"
+import type { Range } from "./range"
 
 // Win-back: the shops that uninstalled in a range, and which of them installed the app again.
 // The group is the shops that left during the range; whether they came back is followed up to
@@ -13,9 +14,6 @@ const DAY_MS = 86_400_000
 
 /** `('a', 'b')` for a raw query. An empty list matches nothing. */
 const inList = (ids: string[]): SQL => (ids.length === 0 ? sql`(NULL)` : sql`(${sql.join(ids.map((id) => sql`${id}`), sql`, `)})`)
-const startOf = (date: string) => new Date(`${date}T00:00:00Z`)
-/** The first instant after a day. */
-const endOf = (date: string) => new Date(toMs(date) + DAY_MS)
 const ts = (d: Date): SQL => sql`${d.toISOString()}::timestamptz`
 
 export type WinBackReturn = { appId: string; shop: string; leftAt: Date; backAt: Date; days: number }
@@ -35,7 +33,8 @@ export type WinBack = {
 
 export const noWinBack = (): WinBack => ({ left: 0, returned: 0, rate: null, medianDays: null, recent: [] })
 
-export async function getWinBack(db: Queryable, appIds: string[], range: Range, limit = 10): Promise<WinBack> {
+/** `timeZone` says where the range's days begin and end. */
+export async function getWinBack(db: Queryable, appIds: string[], range: Range, timeZone: string, limit = 10): Promise<WinBack> {
   if (appIds.length === 0) return noWinBack()
 
   // One row per shop that left in the range: when it first left, and its next install after that.
@@ -43,7 +42,7 @@ export async function getWinBack(db: Queryable, appIds: string[], range: Range, 
     WITH left_shops AS (
       SELECT app_id, shop, min(uninstalled_at) AS left_at
       FROM installs
-      WHERE app_id IN ${inList(appIds)} AND uninstalled_at >= ${ts(startOf(range.from))} AND uninstalled_at < ${ts(endOf(range.to))}
+      WHERE app_id IN ${inList(appIds)} AND uninstalled_at >= ${ts(startOfDay(range.from, timeZone))} AND uninstalled_at < ${ts(endOfDay(range.to, timeZone))}
       GROUP BY app_id, shop
     )
     SELECT l.app_id, l.shop, l.left_at,

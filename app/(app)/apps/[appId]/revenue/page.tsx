@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { ExportLink } from "@/components/app/export-link"
 import { StatGrid } from "@/components/app/kpi-card"
 import { Note, PageHeader } from "@/components/app/page-header"
+import { RebuildNotice } from "@/components/app/rebuild-notice"
 import { PlanMix } from "@/components/app/plan-mix"
 import { ChartCard } from "@/components/charts/chart-card"
 import type { SearchParams } from "@/lib/analytics/page-params"
@@ -22,11 +23,12 @@ export default async function RevenuePage({ params, searchParams }: { params: Pr
   const { params: p, rows, points, kpis, comparedKpis, caption, comparison, scope } = d
   const gran = p.granularity
   const db = getDb()
-  const [plans, connections] = await Promise.all([getPlanMix(db, [appId], p.range.to), getConnections(db)])
+  const [plans, connections] = await Promise.all([getPlanMix(db, [appId], p.range.to, p.timeZone), getConnections(db)])
   const earningsError = connections.find((c) => c.id === scope[0]?.connectionId)?.earningsError ?? null
 
   return (
     <>
+      <RebuildNotice />
       <PageHeader
         level={2}
         title="Revenue"

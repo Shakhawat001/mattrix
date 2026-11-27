@@ -3,13 +3,13 @@ import { addDays, compareRange, dayCount, isDate, presetRange, resolveRange, typ
 import { ToolError } from "./tool"
 
 // The date range a tool reads, from its input: from and to, or a named preset, plus an optional
-// comparison. It follows the dashboard's rules (lib/analytics/range.ts): days are UTC, both ends
+// comparison. It follows the dashboard's rules (lib/analytics/range.ts): days are days in the dashboard's time zone, both ends
 // are included, the end is never after today and the span is at most five years. Unlike a page,
 // which quietly falls back to the last 30 days, a tool says what is wrong so the agent can retry,
 // and notes anything it had to change.
 //
 // A tool spreads the fields into its schema, z.object({ ...RANGE_INPUT, ...COMPARE_INPUT, ... }),
-// then calls toolRange(input, todayUtc(ctx.now), earliest) and passes the result's range, compared
+// then calls toolRange(input, todayIn(timeZone, ctx.now), earliest) and passes the result's range, compared
 // range and notes to envelope().
 
 export const RANGE_PRESETS = ["last_7_days", "last_30_days", "last_90_days", "this_month", "last_month", "last_12_months", "year_to_date", "all_time"] as const
@@ -40,9 +40,9 @@ export const RANGE_INPUT = {
   preset: z
     .enum(RANGE_PRESETS)
     .optional()
-    .describe("A named range that ends today (UTC). all_time starts at the first day with data. Leave it out when you give from and to. Default: last_30_days."),
-  from: day.optional().describe("The first day of the range, YYYY-MM-DD, UTC. Give it together with to."),
-  to: day.optional().describe("The last day of the range, included, YYYY-MM-DD, UTC. A day after today counts as today."),
+    .describe("A named range that ends today (in the dashboard's time zone, the timezone of every answer). all_time starts at the first day with data. Leave it out when you give from and to. Default: last_30_days."),
+  from: day.optional().describe("The first day of the range, YYYY-MM-DD, a day in the dashboard's time zone. Give it together with to."),
+  to: day.optional().describe("The last day of the range, included, YYYY-MM-DD, a day in the dashboard's time zone. A day after today counts as today."),
 }
 
 export const COMPARE_INPUT = {
@@ -76,7 +76,7 @@ export function toolRange(input: RangeInput, today: string, earliest: string | n
   let asked: Range
   if (input.from !== undefined && input.to !== undefined) {
     if (input.from > input.to) throw new ToolError(`from (${input.from}) is after to (${input.to}).`)
-    if (input.from > today) throw new ToolError(`The range starts after today, ${today} (UTC). There is no data for it yet.`)
+    if (input.from > today) throw new ToolError(`The range starts after today, ${today}. There is no data for it yet.`)
     asked = { from: input.from, to: input.to }
   } else {
     const preset = input.preset ?? DEFAULT_PRESET

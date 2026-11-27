@@ -57,6 +57,13 @@
       "when": 1795496466795,
       "tag": "0007_scheduled_cancel",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1795767309493,
+      "tag": "0008_time_zone",
+      "breakpoints": true
     }
   ]
 }

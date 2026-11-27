@@ -3,6 +3,7 @@ import {
   bigint,
   bigserial,
   boolean,
+  check,
   date,
   index,
   integer,
@@ -22,7 +23,8 @@ import {
 //   rollup   daily_metrics: one row per app per day, what the charts read
 //
 // Derived and rollup tables can be thrown away and rebuilt at any time from events.
-// Money is stored in cents. Every timestamp is UTC.
+// Money is stored in cents. Every timestamp is stored as an instant (timestamptz). A day in the
+// rollup is a calendar day in the dashboard's time zone, which is picked in Settings.
 
 const tz = (name: string) => timestamp(name, { withTimezone: true })
 const cents = (name: string) => bigint(name, { mode: "number" })
@@ -84,6 +86,8 @@ export const apps = pgTable(
     derivedAt: tz("derived_at"),
     /** The DERIVE_VERSION (lib/analytics/derive.ts) the derived tables were built with. 0 is from before versions were kept. */
     deriveVersion: integer("derive_version").notNull().default(0),
+    /** The time zone the derived tables were built in. When Settings names another, they are rebuilt. */
+    derivedTimeZone: text("derived_time_zone"),
     createdAt: tz("created_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("apps_connection_gid_uq").on(t.connectionId, t.gid)],
@@ -227,7 +231,7 @@ export const trials = pgTable(
 // Rollup: what the charts read
 // ---------------------------------------------------------------------------
 
-/** One row per app per UTC day. Flows are what happened that day; stocks are the value at the end of it. */
+/** One row per app per day in the dashboard's time zone. Flows are what happened that day; stocks are the value at the end of it. */
 export const dailyMetrics = pgTable(
   "daily_metrics",
   {
@@ -301,6 +305,18 @@ export const annotations = pgTable(
 // ---------------------------------------------------------------------------
 // Operations
 // ---------------------------------------------------------------------------
+
+/** What is changed from the Settings page. One row, written the first time something is saved; until then every default applies. */
+export const settings = pgTable(
+  "settings",
+  {
+    id: integer("id").primaryKey().default(1),
+    /** The IANA time zone that days are counted in and times are shown in. */
+    timeZone: text("time_zone").notNull().default("UTC"),
+    updatedAt: tz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [check("settings_one_row", sql`${t.id} = 1`)],
+)
 
 export const syncRuns = pgTable(
   "sync_runs",
