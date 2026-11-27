@@ -79,7 +79,7 @@ Everything else (the database volume, restarts) is in the compose file. Back up 
 
 Open your domain and sign in with your username and password (on Coolify, the two values from step 5).
 
-The dashboard reads Shopify through the **Partner API**, with one token for your whole Partner organization. Create it in your Partner organization's settings: a Partner API client, with only the permission that lets it read your apps and their events (at the time of writing it is called "Manage apps"; this dashboard sends only read queries). Copy its token. Shopify's own Partner API documentation on shopify.dev has the current steps.
+The dashboard reads Shopify through the **Partner API**, with one token for your whole Partner organization. Create it in your Partner organization's settings: a Partner API client with two permissions, "Manage apps" (your apps and their events) and "View financials" (Shopify's payout records). Without View financials, installs, subscriptions, charges and MRR still work, and net earnings come from Shopify's earnings events if the token can read them (Shopify's documentation disagrees on which permission those need). Those leave out the 2.9% processing fee and any regulatory operating fee, so they will not match the Earnings card in the Partner Dashboard. This dashboard sends only read queries. Shopify's View financials also lets a token cancel Shopify App Pricing subscriptions, so keep the token as safe as the dashboard's database. Copy its token. Shopify's own Partner API documentation on shopify.dev has the current steps.
 
 Then in **Settings, Add a connection**:
 

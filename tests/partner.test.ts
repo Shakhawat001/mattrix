@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { createPartnerClient, PartnerApiError, validateApiVersion, validatePartnerId } from "@/lib/partner/client"
-import { parseEventNode, parseLegacyEventNode, type ParsedEvent } from "@/lib/partner/parse"
-import { CORE_EVENT_TYPES, EARNING_EVENT_TYPES, EVENTS_QUERY, LEGACY_EVENT_TYPES, LEGACY_EVENTS_QUERY, partnersAppId } from "@/lib/partner/query"
+import { ForeignTransactionError, parseEventNode, parseLegacyEventNode, parseTransactionNode, type ParsedEvent } from "@/lib/partner/parse"
+import { CORE_EVENT_TYPES, EARNING_EVENT_TYPES, EVENTS_QUERY, LEGACY_EVENT_TYPES, LEGACY_EVENTS_QUERY, partnersAppId, TRANSACTION_TYPES, TRANSACTIONS_QUERY } from "@/lib/partner/query"
 import { syncConnection, type SyncPass, type SyncStore } from "@/lib/partner/sync"
 
 const TOKEN = "tok_secret_123"
@@ -15,11 +15,14 @@ type Variables = {
   /** The newer events query. */
   filter: Record<string, unknown>
   cursor: string | null
-  /** The older App.events. */
+  /** The older App.events, and the payout ledger (appId and types). */
   appId?: string
   types?: string[]
   occurredAtMin?: string
   occurredAtMax?: string
+  /** The payout ledger. */
+  createdAtMin?: string
+  createdAtMax?: string
 }
 type Call = { url: string; headers: Record<string, string>; body: { query: string; variables: Variables }; at: number }
 
@@ -56,10 +59,17 @@ const legacyPage = (nodes: unknown[], next: string | null = null) => ({
   data: { app: { events: { pageInfo: { hasNextPage: next !== null }, edges: nodes.map((node, i) => ({ cursor: next && i === nodes.length - 1 ? next : `edge-${i}`, node })) } } },
 })
 const isLegacy = (call: Call) => call.body.query.includes("AppMetricsLegacyEvents")
+/** A page of the payout ledger (transactions): no end cursor either, so the last edge carries the next page's. */
+const txPage = (nodes: unknown[], next: string | null = null) => ({
+  data: { transactions: { pageInfo: { hasNextPage: next !== null }, edges: nodes.map((node, i) => ({ cursor: next && i === nodes.length - 1 ? next : `tx-${i}`, node })) } },
+})
+const isTransactions = (call: Call) => call.body.query.includes("AppMetricsTransactions")
+/** The events query's page, the ledger's page or the billing screen's, whichever the call asked for, all empty. */
+const emptyFor = (call: Call) => (isLegacy(call) ? legacyPage([]) : isTransactions(call) ? txPage([]) : page([]))
 
 /** `apps`: apps found by earlier runs. */
 function memoryStore(apps: string[] = []) {
-  const marks: Record<SyncPass, Date | null> = { core: null, earnings: null, legacy: null }
+  const marks: Record<SyncPass, Date | null> = { core: null, earnings: null, transactions: null, legacy: null }
   const stored = new Map<string, ParsedEvent>()
   const store: SyncStore = {
     async watermarks() {
@@ -352,13 +362,13 @@ describe("the sync", () => {
 
   it("stores the events, learns the apps, and moves every watermark to now", async () => {
     const net = fakeNetwork((c, n) =>
-      isLegacy(c) ? reply(legacyPage([])) : n === 1 ? reply(page([node({ id: "e1" }), node({ id: "e2", eventType: "CHARGE_RECURRING", amount: { amount: "24.99", currencyCode: "USD" } })])) : reply(page([])),
+      isLegacy(c) || isTransactions(c) ? reply(emptyFor(c)) : n === 1 ? reply(page([node({ id: "e1" }), node({ id: "e2", eventType: "CHARGE_RECURRING", amount: { amount: "24.99", currencyCode: "USD" } })])) : reply(page([])),
     )
     const mem = memoryStore()
     const result = await syncConnection({ client: client(net), store: mem.store, backfillFrom, now: NOW })
-    expect(result).toMatchObject({ ok: true, inserted: 2, appsSeen: 1, earningsError: null, legacyError: null })
+    expect(result).toMatchObject({ ok: true, inserted: 2, appsSeen: 1, earningsError: null, transactionsError: null, legacyError: null })
     expect([...mem.stored.keys()]).toEqual(["e1", "e2"])
-    expect(mem.marks).toEqual({ core: NOW, earnings: NOW, legacy: NOW })
+    expect(mem.marks).toEqual({ core: NOW, earnings: NOW, transactions: NOW, legacy: NOW })
   })
 
   it("asks for the core types first and earnings second, over the whole window", async () => {
@@ -479,11 +489,12 @@ describe("the billing screen pass (the older App.events)", () => {
   const legacyCalls = (net: ReturnType<typeof fakeNetwork>) => net.calls.filter(isLegacy).map((c) => c.body.variables)
 
   it("runs last, reading each app found so far through app(id:), for the billing screen types, over the whole window", async () => {
-    const net = fakeNetwork((c) => reply(isLegacy(c) ? legacyPage([]) : page([])))
+    const net = fakeNetwork((c) => reply(emptyFor(c)))
     const mem = memoryStore([APP.id, APP_2])
     const result = await syncConnection({ client: client(net), store: mem.store, backfillFrom, now: NOW })
 
-    expect(net.calls.map(isLegacy)).toEqual([false, false, true, true])
+    // The core events, the earnings, the payout ledger (six 30-day windows, each app in each), then the billing screen for each app.
+    expect(net.calls.map((c) => (isLegacy(c) ? "legacy" : isTransactions(c) ? "ledger" : "events"))).toEqual(["events", "events", ...Array<string>(12).fill("ledger"), "legacy", "legacy"])
     expect(legacyCalls(net)).toEqual([
       { appId: "gid://partners/App/1", types: [...LEGACY_EVENT_TYPES], occurredAtMin: "2026-06-01T00:00:00.000Z", occurredAtMax: NOW.toISOString(), cursor: null },
       { appId: "gid://partners/App/2", types: [...LEGACY_EVENT_TYPES], occurredAtMin: "2026-06-01T00:00:00.000Z", occurredAtMax: NOW.toISOString(), cursor: null },
@@ -555,19 +566,20 @@ describe("the billing screen pass (the older App.events)", () => {
     expect(calls[2].occurredAtMax).toBe(NOW.toISOString())
   })
 
-  it("leaves the core and earnings results intact when it fails", async () => {
+  it("leaves the core, earnings and ledger results intact when it fails", async () => {
     const net = fakeNetwork((c, n) => {
       if (isLegacy(c)) return reply({ errors: [{ message: "Field 'events' doesn't exist on type 'App'" }] })
+      if (isTransactions(c)) return reply(txPage([]))
       if (n === 1) return reply(page([node({ id: "core-1" })]))
       return reply(page([node({ id: "earn-1", eventType: "EARNING_CHARGE_RECURRING", relationshipState: undefined, grossAmount: { amount: "10.00", currencyCode: "USD" } })]))
     })
     const mem = memoryStore()
     const result = await syncConnection({ client: client(net), store: mem.store, backfillFrom, now: NOW })
-    expect(result).toMatchObject({ ok: true, inserted: 2, appsSeen: 1, earningsError: null })
+    expect(result).toMatchObject({ ok: true, inserted: 2, appsSeen: 1, earningsError: null, transactionsError: null })
     expect(result.error).toBeUndefined()
     expect(result.legacyError).toMatch(/doesn't exist/)
     expect([...mem.stored.keys()]).toEqual(["core-1", "earn-1"])
-    expect(mem.marks).toEqual({ core: NOW, earnings: NOW, legacy: null })
+    expect(mem.marks).toEqual({ core: NOW, earnings: NOW, transactions: NOW, legacy: null })
   })
 
   it("keeps what a failed window stored, but does not move its watermark", async () => {
@@ -582,12 +594,14 @@ describe("the billing screen pass (the older App.events)", () => {
   })
 
   it("still runs when the earnings pass fails, and not at all when the core pass does", async () => {
+    // A token without View financials: the earnings and the ledger are refused, the billing screen is not.
     const noEarnings = fakeNetwork((c, n) => (isLegacy(c) ? reply(legacyPage([legacyNode()])) : n === 1 ? reply(page([])) : reply({ errors: [{ message: "Access denied" }] })))
     const mem = memoryStore([APP.id])
     const result = await syncConnection({ client: client(noEarnings), store: mem.store, backfillFrom, now: NOW })
     expect(result).toMatchObject({ ok: true, inserted: 1, legacyError: null })
     expect(result.earningsError).toMatch(/Access denied/)
-    expect(mem.marks).toEqual({ core: NOW, earnings: null, legacy: NOW })
+    expect(result.transactionsError).toMatch(/Access denied/)
+    expect(mem.marks).toEqual({ core: NOW, earnings: null, transactions: null, legacy: NOW })
 
     const noCore = fakeNetwork(() => reply({ errors: [{ message: "boom" }] }, 400))
     const failed = memoryStore([APP.id])
@@ -617,5 +631,201 @@ describe("the billing screen pass (the older App.events)", () => {
     expect(net.calls.some(isLegacy)).toBe(false)
     expect(result.legacyError).toBeNull()
     expect(mem.marks.legacy).toEqual(NOW)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The payout ledger (Shopify's transactions)
+// ---------------------------------------------------------------------------
+
+/** A transaction of the payout ledger, as Shopify documents AppSubscriptionSale: what the merchant paid and what reached the payout. */
+const txNode = (over: Record<string, unknown> = {}) => ({
+  __typename: "AppSubscriptionSale",
+  id: `gid://partners/AppSubscriptionSale/${++seq}`,
+  createdAt: "2026-11-03T12:00:00Z",
+  app: { id: "gid://partners/App/1" },
+  chargeId: "gid://shopify/AppSubscription/77",
+  shop: { id: "gid://partners/Shop/9", myshopifyDomain: "Acme.myshopify.com" },
+  grossAmount: { amount: "24.99", currencyCode: "USD" },
+  netAmount: { amount: "24.27", currencyCode: "USD" },
+  shopifyFee: { amount: "0.00", currencyCode: "USD" },
+  ...over,
+})
+
+describe("the query for the payout ledger", () => {
+  it("reads and never writes", () => {
+    expect(TRANSACTIONS_QUERY).not.toMatch(/mutation/i)
+  })
+  it("asks for one app's transactions of the given types, 100 a page, and pages by the last edge's cursor", () => {
+    expect(TRANSACTIONS_QUERY).toMatch(/transactions\(appId: \$appId, types: \$types, createdAtMin: \$createdAtMin, createdAtMax: \$createdAtMax, first: 100, after: \$cursor\)/)
+    expect(TRANSACTIONS_QUERY).toMatch(/edges \{\s+cursor/)
+    // PageInfo has no endCursor in 2026-07: asking for it fails the whole query.
+    expect(TRANSACTIONS_QUERY).not.toMatch(/endCursor/)
+  })
+  it("asks every app transaction type for its app, shop, charge and the three amounts, and nothing only unstable has", () => {
+    for (const typename of ["AppSubscriptionSale", "AppOneTimeSale", "AppUsageSale", "AppSaleCredit", "AppSaleAdjustment"]) {
+      expect(TRANSACTIONS_QUERY).toContain(`... on ${typename} {`)
+    }
+    for (const field of ["grossAmount", "netAmount", "shopifyFee", "myshopifyDomain", "chargeId"]) {
+      expect(TRANSACTIONS_QUERY.split(field).length - 1).toBe(5)
+    }
+    expect(TRANSACTIONS_QUERY).not.toMatch(/processingFee|regulatoryOperatingFee/)
+  })
+  it("reads only app transactions, nothing the other passes read", () => {
+    expect(TRANSACTION_TYPES).toEqual(["APP_SUBSCRIPTION_SALE", "APP_ONE_TIME_SALE", "APP_USAGE_SALE", "APP_SALE_CREDIT", "APP_SALE_ADJUSTMENT"])
+    const others = new Set<string>([...CORE_EVENT_TYPES, ...EARNING_EVENT_TYPES, ...LEGACY_EVENT_TYPES])
+    expect(TRANSACTION_TYPES.filter((t) => others.has(t))).toEqual([])
+  })
+})
+
+describe("one transaction of the payout ledger", () => {
+  it("reads a sale under the app it was read for: what the merchant paid, the revenue share, and what reached the payout", () => {
+    const n = txNode()
+    const t = parseTransactionNode(n, APP.id)!
+    expect(t).toMatchObject({
+      id: `transaction:${n.id}`,
+      type: "APP_SUBSCRIPTION_SALE",
+      occurredAt: new Date("2026-11-03T12:00:00Z"),
+      appGid: APP.id,
+      shop: "acme.myshopify.com",
+      shopGid: "gid://partners/Shop/9",
+      amountCents: null,
+      grossCents: 2499,
+      netCents: 2427,
+      feeCents: 0,
+      currency: "USD",
+      chargeId: "gid://shopify/AppSubscription/77",
+    })
+    expect(t.payload).toBe(n)
+    expect(parseTransactionNode(n, APP.id)!.id).toBe(t.id)
+  })
+
+  it("keeps the signs Shopify sends, and names every app transaction type", () => {
+    const credit = parseTransactionNode(txNode({ __typename: "AppSaleCredit", grossAmount: { amount: "-24.99", currencyCode: "USD" }, netAmount: { amount: "-24.49", currencyCode: "USD" } }), APP.id)!
+    expect(credit).toMatchObject({ type: "APP_SALE_CREDIT", grossCents: -2499, netCents: -2449 })
+    expect(parseTransactionNode(txNode({ __typename: "AppOneTimeSale" }), APP.id)!.type).toBe("APP_ONE_TIME_SALE")
+    expect(parseTransactionNode(txNode({ __typename: "AppUsageSale" }), APP.id)!.type).toBe("APP_USAGE_SALE")
+    expect(parseTransactionNode(txNode({ __typename: "AppSaleAdjustment" }), APP.id)!.type).toBe("APP_SALE_ADJUSTMENT")
+  })
+
+  it("skips what it cannot use: another kind of transaction, no net amount, no date; a missing gross stays unknown", () => {
+    expect(parseTransactionNode(null, APP.id)).toBeNull()
+    expect(parseTransactionNode(txNode({ __typename: "ThemeSale" }), APP.id)).toBeNull()
+    expect(parseTransactionNode(txNode({ netAmount: null }), APP.id)).toBeNull()
+    expect(parseTransactionNode(txNode({ netAmount: { amount: "abc", currencyCode: "USD" } }), APP.id)).toBeNull()
+    expect(parseTransactionNode(txNode({ createdAt: "not a date" }), APP.id)).toBeNull()
+    expect(parseTransactionNode(txNode({ grossAmount: null, shopifyFee: null }), APP.id)).toMatchObject({ grossCents: null, feeCents: null, netCents: 2427 })
+  })
+
+  it("refuses a transaction of another app, which would be counted under this one", () => {
+    expect(() => parseTransactionNode(txNode({ app: { id: "gid://partners/App/2" } }), APP.id)).toThrow(ForeignTransactionError)
+    // The same app named the Partner way, or not named at all: filed under the app it was read for.
+    expect(parseTransactionNode(txNode({ app: { id: "gid://partners/App/1" } }), "gid://shopify/App/1")?.appGid).toBe("gid://shopify/App/1")
+    expect(parseTransactionNode(txNode({ app: null }), APP.id)?.appGid).toBe(APP.id)
+  })
+})
+
+describe("the payout ledger pass", () => {
+  // Three weeks of history: one window of the ledger's thirty days.
+  const backfillFrom = new Date("2026-11-01T00:00:00Z")
+  const longAgo = new Date("2026-06-01T00:00:00Z")
+  const APP_2 = "gid://shopify/App/2"
+  const ledgerCalls = (net: ReturnType<typeof fakeNetwork>) => net.calls.filter(isTransactions).map((c) => c.body.variables)
+
+  it("reads each app found so far through transactions(appId:), for the app transaction types, over the whole window", async () => {
+    const net = fakeNetwork((c) => reply(emptyFor(c)))
+    const mem = memoryStore([APP.id, APP_2])
+    const result = await syncConnection({ client: client(net), store: mem.store, backfillFrom, now: NOW })
+    expect(ledgerCalls(net)).toEqual([
+      { appId: "gid://partners/App/1", types: [...TRANSACTION_TYPES], createdAtMin: "2026-11-01T00:00:00.000Z", createdAtMax: NOW.toISOString(), cursor: null },
+      { appId: "gid://partners/App/2", types: [...TRANSACTION_TYPES], createdAtMin: "2026-11-01T00:00:00.000Z", createdAtMax: NOW.toISOString(), cursor: null },
+    ])
+    expect(result.transactionsError).toBeNull()
+    expect(mem.marks.transactions).toEqual(NOW)
+  })
+
+  it("reads a long backfill in 30-day windows, edge to edge, every app in each, so a busy app stays under the page cap", async () => {
+    const net = fakeNetwork((c) => reply(emptyFor(c)))
+    await syncConnection({ client: client(net), store: memoryStore([APP.id, APP_2]).store, backfillFrom: longAgo, now: NOW })
+    const calls = ledgerCalls(net) as { appId: string; createdAtMin: string; createdAtMax: string }[]
+    expect(calls).toHaveLength(12)
+    expect(calls.map((c) => c.appId)).toEqual(Array.from({ length: 12 }, (_, i) => (i % 2 === 0 ? "gid://partners/App/1" : "gid://partners/App/2")))
+    const windows = calls.filter((_, i) => i % 2 === 0)
+    for (const w of windows) expect((Date.parse(w.createdAtMax) - Date.parse(w.createdAtMin)) / 86_400_000).toBeLessThanOrEqual(30)
+    for (let i = 1; i < windows.length; i++) expect(windows[i].createdAtMin).toBe(windows[i - 1].createdAtMax)
+    expect(windows[0].createdAtMin).toBe(longAgo.toISOString())
+    expect(windows.at(-1)?.createdAtMax).toBe(NOW.toISOString())
+  })
+
+  it("files the transactions under the app as stored, and follows the last edge's cursor to the next page", async () => {
+    let tx = 0
+    const sale = txNode({ id: "gid://partners/AppSubscriptionSale/1" })
+    const credit = txNode({ id: "gid://partners/AppSaleCredit/2", __typename: "AppSaleCredit", netAmount: { amount: "-24.49", currencyCode: "USD" } })
+    const net = fakeNetwork((c) => (!isTransactions(c) ? reply(emptyFor(c)) : ++tx === 1 ? reply(txPage([sale], "page-2")) : reply(txPage([credit]))))
+    const mem = memoryStore([APP.id])
+    const result = await syncConnection({ client: client(net), store: mem.store, backfillFrom, now: NOW })
+    expect(result).toMatchObject({ ok: true, inserted: 2, transactionsError: null })
+    expect(ledgerCalls(net).map((v) => v.cursor)).toEqual([null, "page-2"])
+    expect([...mem.stored.values()].map((e) => [e.id, e.type, e.appGid])).toEqual([
+      ["transaction:gid://partners/AppSubscriptionSale/1", "APP_SUBSCRIPTION_SALE", APP.id],
+      ["transaction:gid://partners/AppSaleCredit/2", "APP_SALE_CREDIT", APP.id],
+    ])
+  })
+
+  it("reads only the chosen apps when apps are chosen", async () => {
+    const net = fakeNetwork((c) => reply(emptyFor(c)))
+    await syncConnection({ client: client(net), store: memoryStore([APP.id, APP_2]).store, backfillFrom, appGids: [APP_2], now: NOW })
+    expect(ledgerCalls(net).map((v) => v.appId)).toEqual(["gid://partners/App/2"])
+  })
+
+  it("starts forty days before its own watermark, to catch a transaction recorded late, but never before the backfill date", async () => {
+    const net = fakeNetwork((c) => reply(emptyFor(c)))
+    const mem = memoryStore([APP.id])
+    mem.marks.core = new Date("2026-11-20T00:00:00.000Z")
+    mem.marks.earnings = new Date("2026-11-20T00:00:00.000Z")
+    mem.marks.transactions = new Date("2026-11-15T00:00:00.000Z")
+    await syncConnection({ client: client(net), store: mem.store, backfillFrom: longAgo, now: NOW })
+    const calls = ledgerCalls(net)
+    expect(calls[0].createdAtMin).toBe("2026-10-06T00:00:00.000Z")
+    expect(calls.at(-1)?.createdAtMax).toBe(NOW.toISOString())
+    // The other passes keep their three days.
+    expect(net.calls[0].body.variables.filter.occurredAtMin).toBe("2026-11-17T00:00:00.000Z")
+    expect(mem.marks.transactions).toEqual(NOW)
+
+    const recent = fakeNetwork((c) => reply(emptyFor(c)))
+    const young = memoryStore([APP.id])
+    young.marks.transactions = new Date("2026-11-15T00:00:00.000Z")
+    await syncConnection({ client: client(recent), store: young.store, backfillFrom: new Date("2026-11-01T00:00:00.000Z"), now: NOW })
+    expect(ledgerCalls(recent)[0].createdAtMin).toBe("2026-11-01T00:00:00.000Z")
+  })
+
+  it("stops at a transaction of another app, keeps nothing from its page, and leaves the other passes alone", async () => {
+    const net = fakeNetwork((c) => reply(isTransactions(c) ? txPage([txNode(), txNode({ app: { id: "gid://partners/App/2" } })]) : emptyFor(c)))
+    const mem = memoryStore([APP.id])
+    const result = await syncConnection({ client: client(net), store: mem.store, backfillFrom, now: NOW })
+    expect(result.ok).toBe(true)
+    expect(result.transactionsError).toMatch(/app 2 when asked for app 1/)
+    expect(result.legacyError).toBeNull()
+    expect(mem.stored.size).toBe(0)
+    expect(mem.marks).toEqual({ core: NOW, earnings: NOW, transactions: null, legacy: NOW })
+  })
+
+  it("keeps a refused ledger from failing the run, keeps what a failed window stored, and does not move its watermark", async () => {
+    let tx = 0
+    const net = fakeNetwork((c) => (!isTransactions(c) ? reply(emptyFor(c)) : ++tx === 1 ? reply(txPage([txNode()], "next")) : reply({ errors: [{ message: "Access denied: View financials" }] })))
+    const mem = memoryStore([APP.id])
+    const result = await syncConnection({ client: client(net), store: mem.store, backfillFrom, now: NOW })
+    expect(result.ok).toBe(true)
+    expect(result.transactionsError).toMatch(/View financials/)
+    expect(mem.stored.size).toBe(1)
+    expect(mem.marks.transactions).toBeNull()
+    expect(mem.marks.legacy).toEqual(NOW)
+  })
+
+  it("fails on an answer with no transactions list and on a next page with no cursor", async () => {
+    const missing = fakeNetwork((c) => reply(isTransactions(c) ? { data: { transactions: null } } : emptyFor(c)))
+    expect((await syncConnection({ client: client(missing), store: memoryStore([APP.id]).store, backfillFrom, now: NOW })).transactionsError).toMatch(/transactions list/)
+    const noCursor = fakeNetwork((c) => reply(isTransactions(c) ? { data: { transactions: { pageInfo: { hasNextPage: true }, edges: [] } } } : emptyFor(c)))
+    expect((await syncConnection({ client: client(noCursor), store: memoryStore([APP.id]).store, backfillFrom, now: NOW })).transactionsError).toMatch(/cursor/)
   })
 })

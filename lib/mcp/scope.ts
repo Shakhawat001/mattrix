@@ -5,7 +5,7 @@ import { connections } from "@/lib/db/schema"
 import { todayIn } from "@/lib/time-zone"
 import type { McpContext } from "./context"
 import { toolRange, type RangeInput, type ToolRange } from "./range"
-import { earningsReadable } from "./tools/list-apps"
+import { earningsNotes } from "./tools/list-apps"
 
 // The apps a tool reads and, for a tool with a range, the range: read and checked the same way in
 // every tool, with the caveats that come with them. A tool spreads APPS_INPUT into its schema next to
@@ -56,7 +56,14 @@ export async function sourceNotes(ctx: McpContext, apps: AppInfo[], options: { e
   if (ids.length === 0) return []
   const rows = await ctx.read((db) =>
     db
-      .select({ label: connections.label, isDemo: connections.isDemo, lastOkAt: connections.lastOkAt, lastError: connections.lastError, earningsError: connections.earningsError })
+      .select({
+        label: connections.label,
+        isDemo: connections.isDemo,
+        lastOkAt: connections.lastOkAt,
+        lastError: connections.lastError,
+        earningsError: connections.earningsError,
+        transactionsError: connections.transactionsError,
+      })
       .from(connections)
       .where(inArray(connections.id, ids))
       .orderBy(asc(connections.createdAt), asc(connections.id))
@@ -66,9 +73,7 @@ export async function sourceNotes(ctx: McpContext, apps: AppInfo[], options: { e
     if (c.isDemo) notes.push(`${c.label} holds demo data made up by the seed-demo command. None of it is real.`)
     else if (c.lastOkAt === null) notes.push(`${c.label} has not finished a sync yet, so its apps may have no numbers.`)
     if (c.lastError !== null) notes.push(`The last sync of ${c.label} failed, so its apps' numbers may be out of date. list_apps says why.`)
-    if (options.earnings && earningsReadable(c) === false) {
-      notes.push(`Shopify refused the earnings events to the Partner API token of ${c.label}, so gross earnings, fees, net earnings, refunds and the fee rate are empty for its apps.`)
-    }
+    if (options.earnings) notes.push(...earningsNotes(c, "list_apps says why."))
   }
   return notes
 }

@@ -13,6 +13,25 @@ export function earningsReadable(c: Pick<ConnectionOverview, "isDemo" | "earning
   return true
 }
 
+/**
+ * What a connection's earnings rest on, when either of their two sources failed on its last sync:
+ * Shopify's payout records (used as far as they have been read) and its earnings events (after that).
+ * `why` points the reader at where the error is.
+ */
+export function earningsNotes(c: Pick<ConnectionOverview, "label" | "isDemo" | "earningsError" | "transactionsError" | "lastOkAt" | "lastError">, why: string): string[] {
+  const refused = earningsReadable(c) === false
+  if (refused && c.transactionsError !== null) {
+    return [`Shopify refused both the earnings events and the payout records to the Partner API token of ${c.label}, so gross earnings, fees, net earnings, refunds and the fee rate of its apps may be empty for recent days. MRR, charges and installs do not need them. ${why}`]
+  }
+  if (refused) {
+    return [`Shopify refused the earnings events to the Partner API token of ${c.label}. Gross earnings, fees and net earnings of its apps come from Shopify's payout records where those have been read, and may be empty where not; refunds are empty. ${why}`]
+  }
+  if (c.transactionsError !== null) {
+    return [`Shopify's payout records could not be read for ${c.label} on the last sync, so for the days after they were last read, net earnings and fees of its apps come from the earnings events and leave out the 2.9% processing fee and any regulatory operating fee. ${why}`]
+  }
+  return []
+}
+
 /** list_apps's answer, from the apps the caller may see and every connection. */
 export function describeApps(apps: AppInfo[], connections: ConnectionOverview[], timeZone: string) {
   const notes: string[] = []
@@ -21,9 +40,7 @@ export function describeApps(apps: AppInfo[], connections: ConnectionOverview[],
     else if (c.lastOkAt === null) notes.push(`${c.label} has not finished a sync yet, so its apps may have no numbers.`)
     if (c.lastError !== null) notes.push(`The last sync of ${c.label} failed, so its apps' numbers may be out of date. last_error says why.`)
     if (c.paused && !c.isDemo) notes.push(`${c.label} is paused: it does not sync until it is resumed in Settings.`)
-    if (earningsReadable(c) === false) {
-      notes.push(`Shopify refused the earnings events to the Partner API token of ${c.label}, so gross earnings, fees and net earnings are empty for its apps. MRR, charges and installs do not need them.`)
-    }
+    notes.push(...earningsNotes(c, "earnings_error and payout_records_error say why."))
     if (c.legacyError !== null) notes.push(`The billing screen events of ${c.label} (charges accepted, declined and expired) could not be read on the last sync. Everything else synced. billing_events_error says why.`)
   }
   notes.push(connections.length > 0 ? NOTES.historyStartsAtBackfill : "Nothing is connected yet. A Shopify Partner API token is added in Settings.")
@@ -51,6 +68,7 @@ export function describeApps(apps: AppInfo[], connections: ConnectionOverview[],
         last_error: c.lastError,
         earnings_readable: earningsReadable(c),
         earnings_error: c.earningsError,
+        payout_records_error: c.transactionsError,
         billing_events_error: c.legacyError,
       })),
     },
@@ -64,7 +82,7 @@ export const listAppsTool = defineTool({
   description: [
     `Lists the Shopify apps this ${BRAND.name} instance tracks, with the app ids every other tool takes. Call it first.`,
     "Each app has its id, name (shopify_name is Shopify's own name for it), its Partner connection, the first and last event Shopify reported, and last_built_at, when its numbers were last rebuilt from those events.",
-    "Each connection (one Shopify Partner organization) has history_from (nothing before it was read), last_sync_at (the last sync that finished without an error), last_attempt_at, last_error, billing_events_error, and earnings_readable: false means its token cannot read Shopify's earnings events, so gross earnings, fees and net earnings are empty for its apps; null means no sync has finished to tell.",
+    "Each connection (one Shopify Partner organization) has history_from (nothing before it was read), last_sync_at (the last sync that finished without an error), last_attempt_at, last_error, billing_events_error, payout_records_error (set when Shopify's payout records could not be read: for the days after they were last read, net earnings come from the earnings events and leave out the processing fee), and earnings_readable: false means its token cannot read Shopify's earnings events, so gross earnings, fees and net earnings come only from the payout records, where those have been read; null means no sync has finished to tell.",
     "Apps hidden in the dashboard are left out. Read the notes: they say when data is demo data, out of date or incomplete.",
   ].join(" "),
   input: z.object({}),

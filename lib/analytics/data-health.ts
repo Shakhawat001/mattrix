@@ -82,9 +82,10 @@ export type ConnectionHealth = {
   apiVersion: string
   /** How far back the history was asked for. Nothing before it is read. */
   backfillFrom: Date
-  /** How far each pass has read: the core events (installs, subscriptions, charges), earnings, and the billing screen events of the older App.events. */
+  /** How far each pass has read: the core events (installs, subscriptions, charges), earnings, the payout ledger, and the billing screen events of the older App.events. */
   coreWatermark: Date | null
   earningsWatermark: Date | null
+  transactionsWatermark: Date | null
   legacyWatermark: Date | null
   /** A sync asked for in Settings that has not started yet. */
   syncRequestedAt: Date | null
@@ -94,6 +95,8 @@ export type ConnectionHealth = {
   lastError: string | null
   /** Why the earnings pass failed, usually a token that cannot read earnings. The other events still sync. */
   earningsError: string | null
+  /** Why the payout ledger pass failed, usually a token without View financials. Net earnings then leave out the processing fee. */
+  transactionsError: string | null
   /** Why the billing screen pass failed. The other events still sync. */
   legacyError: string | null
   /** The latest sync runs, newest first. */
@@ -216,12 +219,14 @@ export async function getDataHealth(db: Queryable, appIds: string[], timeZone: s
         backfillFrom: connections.backfillFrom,
         coreWatermark: connections.coreWatermark,
         earningsWatermark: connections.earningsWatermark,
+        transactionsWatermark: connections.transactionsWatermark,
         legacyWatermark: connections.legacyWatermark,
         syncRequestedAt: connections.syncRequestedAt,
         lastRunAt: connections.lastRunAt,
         lastOkAt: connections.lastOkAt,
         lastError: connections.lastError,
         earningsError: connections.earningsError,
+        transactionsError: connections.transactionsError,
         legacyError: connections.legacyError,
       })
       .from(connections)

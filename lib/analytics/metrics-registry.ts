@@ -53,13 +53,13 @@ export const METRICS = {
   trialsConverted: { label: "Trials converted", format: "int", good: "up", description: "Trials that turned into a paying subscription during the period: the trial ended with the subscription still open, or an earlier charge came in." },
   trialsCanceled: { label: "Trials canceled", format: "int", good: "down", description: "Trials that ended in a cancel, an uninstall or a freeze before the subscription started paying." },
   trialConversion: { label: "Trial to paid", format: "percent", good: "up", description: "Trials converted divided by trials converted plus canceled, in the period. Trials still running are left out." },
-  charged: { label: "Charged", format: "money", good: "up", description: "What merchants were charged, before Shopify's fees, by the date of the charge." },
-  grossEarned: { label: "Gross earnings", format: "money", good: "up", description: "Earnings before Shopify's fee, as Shopify reports them (refunds and adjustments are included, with their sign)." },
-  netEarned: { label: "Net earnings", format: "money", good: "up", description: "What reaches you after Shopify's fee. Needs a token that can read earnings." },
-  fees: { label: "Shopify fees", format: "money", good: "down", description: "The revenue share Shopify kept from your charges, as its earnings events report it." },
-  feeRate: { label: "Fee rate", format: "percent", good: "down", description: "Shopify's fees divided by gross earnings." },
+  charged: { label: "Charged", format: "money", good: "up", description: "What merchants were billed, before Shopify's fees and before any app credit, on the day of each charge. The Partner Dashboard's Earnings card counts what reached you instead: compare it with Net earnings." },
+  grossEarned: { label: "Gross earnings", format: "money", good: "up", description: "What merchants paid, before Shopify's fees, on the day Shopify recorded it. Credits, refunds and adjustments are taken off." },
+  netEarned: { label: "Net earnings", format: "money", good: "up", description: "What reached your payouts: gross earnings minus Shopify's fees, credits and refunds included, from Shopify's payout records, which Shopify documents as what is added to or taken off your payout. It is the figure to compare with Earnings in the Partner Dashboard, over the same days and shops. For days the payout records do not cover (a token without View financials), it comes from Shopify's earning events, after its revenue share only." },
+  fees: { label: "Shopify fees", format: "money", good: "down", description: "Gross earnings minus net earnings: everything Shopify kept. From its payout records that is the revenue share, the 2.9% processing fee and any regulatory operating fee; for days they do not cover, the revenue share only." },
+  feeRate: { label: "Fee rate", format: "percent", good: "down", description: "Shopify's fees divided by gross earnings. Without payout records it is the revenue share only." },
   refunded: { label: "Refunded", format: "money", good: "down", description: "Value of charges refunded to merchants during the period." },
-  credits: { label: "Credits applied", format: "money", good: "down", description: "Value of app credits applied for merchants during the period." },
+  credits: { label: "Credits applied", format: "money", good: "down", description: "Value of the app credits applied to merchants' bills during the period. What a credit takes off your payout can differ from its value; the Partner Dashboard's Application credits line, and Net earnings here, count what it takes off." },
 } as const satisfies Record<string, MetricDef>
 
 export type MetricId = keyof typeof METRICS

@@ -46,7 +46,7 @@ describe("shop and event exports", () => {
   }
   const event: EventRow = {
     id: "e1", appId: "a", type: "RELATIONSHIP_UNINSTALLED", occurredAt: new Date("2026-03-01T10:00:00Z"), shop: "a.myshopify.com", state: null,
-    reason: "too_expensive", reasonDescription: "+1 formula, \"quoted\", and a\nnew line", planHandle: null, billingPeriod: null, amountCents: null, netCents: null, feeCents: null,
+    reason: "too_expensive", reasonDescription: "+1 formula, \"quoted\", and a\nnew line", planHandle: null, billingPeriod: null, amountCents: null, grossCents: null, netCents: null, feeCents: null,
   }
 
   it("defuses spreadsheet formulas in text that came from outside, once written", () => {
@@ -65,6 +65,22 @@ describe("shop and event exports", () => {
     const [header, line] = eventRows([event], labelOf)
     expect(line[(header as string[]).indexOf("event")]).toBe("Uninstalled")
     expect(line[(header as string[]).indexOf("event_type")]).toBe("RELATIONSHIP_UNINSTALLED")
+  })
+  it("gives a payout record's fee as everything Shopify kept, and an earning event's as Shopify reported it", () => {
+    const money = (over: Partial<EventRow>) => ({ ...event, reason: null, reasonDescription: null, ...over })
+    const rows = eventRows(
+      [
+        money({ type: "APP_SALE_CREDIT", grossCents: 2499, netCents: -2449, feeCents: 0 }),
+        money({ type: "EARNING_CHARGE_RECURRING", grossCents: 2499, netCents: 2499, feeCents: 0 }),
+      ],
+      labelOf,
+    )
+    const header = rows[0] as string[]
+    const pick = (line: unknown[], column: string) => line[header.indexOf(column)]
+    expect(header).toEqual(expect.arrayContaining(["amount_usd", "gross_usd", "net_usd", "fee_usd"]))
+    // The credit took $24.49 off the payout; Shopify kept $0.50 less than its $24.99 face value.
+    expect([pick(rows[1], "gross_usd"), pick(rows[1], "net_usd"), pick(rows[1], "fee_usd")]).toEqual([-24.99, -24.49, -0.5])
+    expect([pick(rows[2], "gross_usd"), pick(rows[2], "net_usd"), pick(rows[2], "fee_usd")]).toEqual([24.99, 24.99, 0])
   })
 })
 

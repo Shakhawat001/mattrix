@@ -413,6 +413,7 @@ export type EventRow = {
   planHandle: string | null
   billingPeriod: string | null
   amountCents: number | null
+  grossCents: number | null
   netCents: number | null
   feeCents: number | null
 }
@@ -436,7 +437,7 @@ export async function listEvents(db: Db, appIds: string[], timeZone: string, fil
       .select({
         id: events.id, appId: events.appId, type: events.type, occurredAt: events.occurredAt, shop: events.shop, state: events.state,
         reason: events.reason, reasonDescription: events.reasonDescription, planHandle: events.planHandle, billingPeriod: events.billingPeriod,
-        amountCents: events.amountCents, netCents: events.netCents, feeCents: events.feeCents,
+        amountCents: events.amountCents, grossCents: events.grossCents, netCents: events.netCents, feeCents: events.feeCents,
       })
       .from(events)
       .where(where)
@@ -473,6 +474,8 @@ export type ConnectionOverview = {
   lastOkAt: Date | null
   lastError: string | null
   earningsError: string | null
+  /** Why Shopify's payout ledger could not be read on the last sync. Net earnings then leave out the processing fee. */
+  transactionsError: string | null
   legacyError: string | null
   createdAt: Date
   apps: number
@@ -497,7 +500,7 @@ export async function getConnections(db: Queryable): Promise<ConnectionOverview[
   return rows.map((c) => ({
     id: c.id, label: c.label, partnerId: c.partnerId, tokenHint: c.tokenHint, apiVersion: c.apiVersion, appGids: c.appGids, backfillFrom: c.backfillFrom,
     paused: c.paused, isDemo: c.isDemo, syncRequestedAt: c.syncRequestedAt, lastRunAt: c.lastRunAt, lastOkAt: c.lastOkAt, lastError: c.lastError,
-    earningsError: c.earningsError, legacyError: c.legacyError, createdAt: c.createdAt,
+    earningsError: c.earningsError, transactionsError: c.transactionsError, legacyError: c.legacyError, createdAt: c.createdAt,
     apps: countFor.get(c.id)?.apps ?? 0,
     events: countFor.get(c.id)?.events ?? 0,
     runs: runs.filter((r) => r.connectionId === c.id).slice(0, 5).map((r) => ({ id: r.id, trigger: r.trigger, startedAt: r.startedAt, ok: r.ok, eventsInserted: r.eventsInserted, error: r.error, durationMs: r.durationMs })),

@@ -57,6 +57,7 @@ async function syncOne(database: Database, connection: ConnectionRow, trigger: "
       let appsFound = 0
       let error: string | null = null
       let earningsError: string | null = null
+      let transactionsError: string | null = null
       let legacyError: string | null = null
 
       try {
@@ -76,6 +77,7 @@ async function syncOne(database: Database, connection: ConnectionRow, trigger: "
         appsFound = result.appsSeen
         error = result.error ?? null
         earningsError = result.earningsError ?? null
+        transactionsError = result.transactionsError ?? null
         legacyError = result.legacyError ?? null
       } catch (err) {
         error = describeError(err)
@@ -93,14 +95,14 @@ async function syncOne(database: Database, connection: ConnectionRow, trigger: "
       const finishedAt = new Date()
       await db
         .update(connections)
-        .set({ lastOkAt: ok ? finishedAt : undefined, lastError: error, earningsError, legacyError })
+        .set({ lastOkAt: ok ? finishedAt : undefined, lastError: error, earningsError, transactionsError, legacyError })
         .where(eq(connections.id, connection.id))
       await db
         .update(syncRuns)
         .set({ finishedAt, ok, eventsInserted: inserted, appsFound, error, durationMs: finishedAt.getTime() - startedAt.getTime() })
         .where(eq(syncRuns.id, run.id))
 
-      log[ok ? "info" : "warn"]("sync finished", { connection: connection.label, trigger, ok, inserted, appsFound, error, earningsError, legacyError })
+      log[ok ? "info" : "warn"]("sync finished", { connection: connection.label, trigger, ok, inserted, appsFound, error, earningsError, transactionsError, legacyError })
     } finally {
       await held`select pg_advisory_unlock(hashtext(${"appmetrics-sync-" + connection.id}))`.catch(() => {})
     }

@@ -108,9 +108,17 @@ export default async function SettingsPage() {
                     The last sync failed: {c.lastError}
                   </p>
                 ) : null}
-                {c.earningsError && !c.lastError ? (
+                {c.earningsError && c.transactionsError && !c.lastError ? (
                   <p className="border-l-2 border-primary bg-muted px-4 py-3 text-sm leading-relaxed text-muted-foreground">
-                    Installs, subscriptions and charges were read, but Shopify&apos;s earnings events were not: {c.earningsError}. Gross earnings, fees and net earnings stay empty until that is fixed.
+                    Installs, subscriptions and charges were read, but neither Shopify&apos;s earnings events nor its payout records were: {c.earningsError}; {c.transactionsError}. Gross earnings, fees and net earnings stay empty for recent days until that is fixed. Both usually need the View financials permission.
+                  </p>
+                ) : c.earningsError && !c.lastError ? (
+                  <p className="border-l-2 border-primary bg-muted px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+                    Installs, subscriptions and charges were read, but Shopify&apos;s earnings events were not: {c.earningsError}. Earnings then come only from Shopify&apos;s payout records, for the apps and days those cover.
+                  </p>
+                ) : c.transactionsError && !c.lastError ? (
+                  <p className="border-l-2 border-primary bg-muted px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+                    Shopify&apos;s payout records (its transactions) could not be read: {c.transactionsError}. For the days after they were last read, net earnings and fees come from the earnings events and leave out the 2.9% processing fee and any regulatory operating fee, so they will not match the Earnings card in the Partner Dashboard. If the error is about access, the token needs the View financials permission.
                   </p>
                 ) : null}
                 {c.legacyError && !c.lastError ? (

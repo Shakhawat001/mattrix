@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { LEGACY_EVENT_TYPES } from "./query"
+import { LEGACY_EVENT_TYPES, TRANSACTION_TYPENAMES } from "./query"
 
 // One Partner API event node -> one row. Anything that is not a usable event becomes
 // null, so a single odd node cannot stop a sync.
@@ -84,6 +84,60 @@ export function parseEventNode(node: any): ParsedEvent | null {
     netCents: cents(node.netAmount?.amount),
     feeCents: cents(node.shopifyFee?.amount),
     chargeId: text(node.chargeId ?? node.earningChargeId, 100),
+    payload: node as Record<string, unknown>,
+  }
+}
+
+/** The number at the end of a gid, which gid://partners/App/1 and gid://shopify/App/1 share. */
+const gidNumber = (gid: unknown): string | null => (typeof gid === "string" ? (/\/(\d+)$/.exec(gid)?.[1] ?? null) : null)
+
+/** A transaction that names another app than the one it was read for. Its rows would be filed under the wrong app. */
+export class ForeignTransactionError extends Error {}
+
+/**
+ * One transaction of Shopify's payout ledger -> one row, filed under the app it was read for, with
+ * the type it is stored under (APP_SUBSCRIPTION_SALE, APP_SALE_CREDIT, ...). netCents is what was
+ * added to or taken off your payout; grossCents and feeCents are as Shopify sent them, signs
+ * included, and derive() reads them. A type that was not asked for is skipped. A transaction that
+ * names another app throws, because filing it here would count another app's money.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseTransactionNode(node: any, appGid: string): ParsedEvent | null {
+  if (!node || typeof node.id !== "string" || typeof node.__typename !== "string") return null
+  const type = TRANSACTION_TYPENAMES[node.__typename]
+  if (!type) return null
+  const occurredAt = new Date(node.createdAt)
+  if (Number.isNaN(occurredAt.getTime())) return null
+  const netCents = cents(node.netAmount?.amount)
+  if (netCents === null) return null
+
+  const named = gidNumber(node.app?.id)
+  if (named !== null && named !== gidNumber(appGid)) throw new ForeignTransactionError(`Partner API returned a transaction of app ${named} when asked for app ${gidNumber(appGid)}`)
+
+  const shop = text(node.shop?.myshopifyDomain, 255)?.toLowerCase().replace(/^https?:\/\//, "").replace(/\/+$/, "") || null
+  return {
+    id: `transaction:${node.id}`,
+    occurredAt,
+    type,
+    appGid,
+    appName: null,
+    appApiKey: null,
+    shop,
+    shopGid: text(node.shop?.id, 100),
+    state: null,
+    reason: null,
+    reasonDescription: null,
+    planHandle: null,
+    billingPeriod: null,
+    trialDays: null,
+    trialDaysRemaining: null,
+    cancelEffectiveOn: null,
+    amountCents: null,
+    currency: text(node.netAmount?.currencyCode ?? node.grossAmount?.currencyCode, 8),
+    grossCents: cents(node.grossAmount?.amount),
+    netCents,
+    feeCents: cents(node.shopifyFee?.amount),
+    chargeId: text(node.chargeId, 100),
     payload: node as Record<string, unknown>,
   }
 }

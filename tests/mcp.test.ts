@@ -191,6 +191,7 @@ function connection(over: Partial<ConnectionOverview> = {}): ConnectionOverview 
     lastOkAt: NOW,
     lastError: null,
     earningsError: null,
+    transactionsError: null,
     legacyError: null,
     createdAt: NOW,
     apps: 2,
@@ -255,6 +256,7 @@ describe("list_apps", () => {
         last_error: null,
         earnings_readable: true,
         earnings_error: null,
+        payout_records_error: null,
         billing_events_error: null,
       },
     ])
@@ -270,7 +272,9 @@ describe("list_apps", () => {
         connection({ id: "n", label: "New org", lastOkAt: null, lastRunAt: null }),
         connection({ id: "f", label: "Broken org", lastError: "Partner API answered 500" }),
         connection({ id: "p", label: "Paused org", paused: true }),
-        connection({ id: "e", label: "No earnings org", earningsError: "ACCESS_DENIED" }),
+        connection({ id: "e", label: "No earnings org", earningsError: "ACCESS_DENIED", transactionsError: "ACCESS_DENIED" }),
+        connection({ id: "r", label: "Records only org", earningsError: "ACCESS_DENIED" }),
+        connection({ id: "t", label: "No payouts org", transactionsError: "Access denied: View financials" }),
         connection({ id: "b", label: "No billing org", legacyError: "App.events answered 403" }),
       ]
     , "UTC")
@@ -279,7 +283,9 @@ describe("list_apps", () => {
       "New org has not finished a sync yet, so its apps may have no numbers.",
       "The last sync of Broken org failed, so its apps' numbers may be out of date. last_error says why.",
       "Paused org is paused: it does not sync until it is resumed in Settings.",
-      "Shopify refused the earnings events to the Partner API token of No earnings org, so gross earnings, fees and net earnings are empty for its apps. MRR, charges and installs do not need them.",
+      "Shopify refused both the earnings events and the payout records to the Partner API token of No earnings org, so gross earnings, fees, net earnings, refunds and the fee rate of its apps may be empty for recent days. MRR, charges and installs do not need them. earnings_error and payout_records_error say why.",
+      "Shopify refused the earnings events to the Partner API token of Records only org. Gross earnings, fees and net earnings of its apps come from Shopify's payout records where those have been read, and may be empty where not; refunds are empty. earnings_error and payout_records_error say why.",
+      "Shopify's payout records could not be read for No payouts org on the last sync, so for the days after they were last read, net earnings and fees of its apps come from the earnings events and leave out the 2.9% processing fee and any regulatory operating fee. earnings_error and payout_records_error say why.",
       "The billing screen events of No billing org (charges accepted, declined and expired) could not be read on the last sync. Everything else synced. billing_events_error says why.",
       "History starts at each connection's backfill date (history_from): nothing Shopify reported before it was read, so counts from that time are not here.",
     ])

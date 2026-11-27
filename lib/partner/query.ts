@@ -1,11 +1,14 @@
-// The two GraphQL queries this app sends to Shopify's Partner API. The first reads the
+// The three GraphQL queries this app sends to Shopify's Partner API. The first reads the
 // organization's event history: installs, uninstalls, subscription changes, charges,
-// earnings and credits. The second reads what only the older App.events reports: what
-// merchants did on the billing screen. Nothing here can change anything on Shopify's side.
+// earnings and credits. The second reads Shopify's payout ledger, the only place that says
+// what reached you after every fee. The third reads what only the older App.events reports:
+// what merchants did on the billing screen. Nothing here can change anything on Shopify's side.
 //
-// Both were checked against the Partner API 2026-07 schema. `state` and `chargeId` mean
-// different types on different event kinds, hence the aliases. 2026-10 is not in the
-// Partner schema list yet, so connections default to 2026-07 and can be changed.
+// All three were checked against the Partner API 2026-07 schema; the payout ledger query also
+// against Shopify's published schema file for 2026-07, fragment by fragment (its shared fields have
+// the same types on all five transaction types, so they merge). `state` and `chargeId` mean
+// different types on different event kinds, hence the aliases in the first. Connections default
+// to 2026-07 and can be changed.
 //
 // Docs: https://shopify.dev/docs/api/partner/historical-events
 
@@ -198,6 +201,89 @@ export const LEGACY_EVENT_TYPES = [
   "SUBSCRIPTION_APPROACHING_CAPPED_AMOUNT",
   "SUBSCRIPTION_CAPPED_AMOUNT_UPDATED",
 ] as const
+
+/**
+ * Shopify's payout ledger: one transaction per app sale, credit and adjustment, read one app at a
+ * time. It is the only place the Partner API reports what actually reaches your payout. An
+ * earning event's netAmount is only "after commission" (Shopify's revenue share), while a
+ * transaction's netAmount is "the net amount that is added to or deducted from your payout": the
+ * 2.9% processing fee and any regulatory operating fee are taken off too. The fee fields that split
+ * those two out exist only in the unstable API version, so the fees are read as gross minus net.
+ * Needs the token's View financials permission. Its page info has no end cursor, so the last
+ * edge's cursor asks for the next page, as with App.events. Every type is listed with the same
+ * fields, since no interface holds them.
+ *
+ * Docs: https://shopify.dev/docs/api/partner/2026-07/queries/transactions
+ */
+const TRANSACTION_FIELDS = `
+          app {
+            id
+          }
+          chargeId
+          shop {
+            id
+            myshopifyDomain
+          }
+          grossAmount {
+            amount
+            currencyCode
+          }
+          netAmount {
+            amount
+            currencyCode
+          }
+          shopifyFee {
+            amount
+            currencyCode
+          }`
+
+export const TRANSACTIONS_QUERY = `query AppMetricsTransactions($appId: ID!, $types: [TransactionType!], $createdAtMin: DateTime, $createdAtMax: DateTime, $cursor: String) {
+  transactions(appId: $appId, types: $types, createdAtMin: $createdAtMin, createdAtMax: $createdAtMax, first: 100, after: $cursor) {
+    pageInfo {
+      hasNextPage
+    }
+    edges {
+      cursor
+      node {
+        __typename
+        id
+        createdAt
+        ... on AppSubscriptionSale {${TRANSACTION_FIELDS}
+        }
+        ... on AppOneTimeSale {${TRANSACTION_FIELDS}
+        }
+        ... on AppUsageSale {${TRANSACTION_FIELDS}
+        }
+        ... on AppSaleCredit {${TRANSACTION_FIELDS}
+        }
+        ... on AppSaleAdjustment {${TRANSACTION_FIELDS}
+        }
+      }
+    }
+  }
+}`
+
+/**
+ * The ledger's app transactions, stored under these names as Shopify sends them. Sales are what a
+ * merchant paid; a credit is an app credit you gave, and an adjustment is a refund, a downgrade or
+ * another correction, each deducted from your payout.
+ */
+export const TRANSACTION_TYPES = [
+  "APP_SUBSCRIPTION_SALE",
+  "APP_ONE_TIME_SALE",
+  "APP_USAGE_SALE",
+  "APP_SALE_CREDIT",
+  "APP_SALE_ADJUSTMENT",
+] as const
+
+/** The GraphQL type of each transaction, and the name it is stored under. */
+export const TRANSACTION_TYPENAMES: Record<string, (typeof TRANSACTION_TYPES)[number]> = {
+  AppSubscriptionSale: "APP_SUBSCRIPTION_SALE",
+  AppOneTimeSale: "APP_ONE_TIME_SALE",
+  AppUsageSale: "APP_USAGE_SALE",
+  AppSaleCredit: "APP_SALE_CREDIT",
+  AppSaleAdjustment: "APP_SALE_ADJUSTMENT",
+}
 
 /** `app(id:)` takes gid://partners/App/123; the newer events, and so the stored apps, name it gid://shopify/App/123. */
 export function partnersAppId(gid: string): string {

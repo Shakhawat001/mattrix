@@ -2,9 +2,12 @@ import { and, asc, desc, eq, sql } from "drizzle-orm"
 import type { Queryable } from "@/lib/db/client"
 import { events, installs, subscriptions, trials } from "@/lib/db/schema"
 import { rankOf, type SubscriptionRow, type TrialRow } from "./derive"
+import { getLedgerCutoff, shownRows } from "./earnings"
 
 // Everything stored about one shop in one app: its stays, its subscription periods, its trials,
-// and the raw events they were built from, each oldest first.
+// and the raw events they were built from, each oldest first. Of the earnings rows it lists only the
+// ones the app's numbers count (earnings.ts): ledger transactions up to the app's ledger cutoff and
+// earning events after it, so a sale is not told twice. The event log still shows every row.
 
 const DEFAULT_MAX_EVENTS = 1000
 const MOST_EVENTS = 10_000
@@ -101,7 +104,7 @@ export async function getShopTimeline(db: Queryable, appId: string, shop: string
   const asked = options.maxEvents
   const limit = asked !== undefined && Number.isFinite(asked) ? Math.min(MOST_EVENTS, Math.max(1, Math.floor(asked))) : DEFAULT_MAX_EVENTS
 
-  const ofShop = and(eq(events.appId, appId), eq(events.shop, domain))
+  const ofShop = and(eq(events.appId, appId), eq(events.shop, domain), shownRows(await getLedgerCutoff(db, appId)))
   const [[count], eventRows, stays, subs, trialRows] = await Promise.all([
     db.select({ n: sql<number>`count(*)::int` }).from(events).where(ofShop),
     db
@@ -156,7 +159,11 @@ export async function getShopTimeline(db: Queryable, appId: string, shop: string
       .orderBy(asc(trials.startedAt)),
   ])
 
-  if (eventRows.length === 0) return null
+  // A shop whose only rows are earnings the app's numbers do not count still has a timeline.
+  if (eventRows.length === 0) {
+    const [any] = await db.select({ one: sql<number>`1` }).from(events).where(and(eq(events.appId, appId), eq(events.shop, domain))).limit(1)
+    if (!any) return null
+  }
 
   return {
     appId,

@@ -1,4 +1,5 @@
 import { FLOW_KEYS, STOCK_KEYS, type DayRow } from "./aggregate"
+import { LEDGER_TYPES, ledgerMoney } from "./derive"
 import { eventLabel } from "./labels"
 import type { EventRow, ShopRow } from "./queries"
 import type { Range } from "./range"
@@ -43,21 +44,30 @@ export function shopRows(rows: ShopRow[], labelOf: (appId: string) => string): u
   return [header, ...body]
 }
 
+/**
+ * One row per event. For a payout record (a ledger transaction) the gross takes the sign of what it
+ * did to the payout and the fee is everything Shopify kept, gross minus net, as the Revenue tab counts
+ * it; for an earning event both are as Shopify reported them (its fee is the revenue share).
+ */
 export function eventRows(rows: EventRow[], labelOf: (appId: string) => string): unknown[][] {
-  const header = ["time_utc", "app", "event", "event_type", "shop", "plan", "billing", "amount_usd", "net_usd", "fee_usd", "uninstall_reason", "comment"]
-  const body = rows.map((e) => [
-    e.occurredAt,
-    labelOf(e.appId),
-    eventLabel(e.type),
-    e.type,
-    e.shop,
-    e.planHandle,
-    e.billingPeriod,
-    dollars(e.amountCents),
-    dollars(e.netCents),
-    dollars(e.feeCents),
-    e.reason,
-    e.reasonDescription,
-  ])
+  const header = ["time_utc", "app", "event", "event_type", "shop", "plan", "billing", "amount_usd", "gross_usd", "net_usd", "fee_usd", "uninstall_reason", "comment"]
+  const body = rows.map((e) => {
+    const ledger = LEDGER_TYPES.has(e.type) ? ledgerMoney(e) : null
+    return [
+      e.occurredAt,
+      labelOf(e.appId),
+      eventLabel(e.type),
+      e.type,
+      e.shop,
+      e.planHandle,
+      e.billingPeriod,
+      dollars(e.amountCents),
+      dollars(ledger ? ledger.grossCents : e.grossCents),
+      dollars(e.netCents),
+      dollars(ledger ? ledger.grossCents - ledger.netCents : e.feeCents),
+      e.reason,
+      e.reasonDescription,
+    ]
+  })
   return [header, ...body]
 }

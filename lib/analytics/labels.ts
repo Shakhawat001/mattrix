@@ -30,6 +30,11 @@ const EVENT_LABELS: Record<string, string> = {
   CREDIT_APPLIED: "Credit applied",
   CREDIT_PENDING: "Credit pending",
   CREDIT_FAILED: "Credit failed",
+  APP_SUBSCRIPTION_SALE: "Payout record: recurring",
+  APP_ONE_TIME_SALE: "Payout record: one-time",
+  APP_USAGE_SALE: "Payout record: usage",
+  APP_SALE_CREDIT: "Payout record: credit",
+  APP_SALE_ADJUSTMENT: "Payout record: adjustment",
 }
 
 export const eventLabel = (type: string): string => EVENT_LABELS[type] ?? humanize(type)

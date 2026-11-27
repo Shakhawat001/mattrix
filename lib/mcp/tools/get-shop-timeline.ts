@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { LEDGER_TYPES, ledgerMoney } from "@/lib/analytics/derive"
 import { listExcludedShops } from "@/lib/analytics/excluded-shops"
 import { eventLabel } from "@/lib/analytics/labels"
 import { getShopTimeline, type TimelineEvent } from "@/lib/analytics/shop-timeline"
@@ -34,25 +35,29 @@ function standing(s: ShopStanding) {
   }
 }
 
-const event = (e: TimelineEvent) => ({
-  id: e.id,
-  type: e.type,
-  label: eventLabel(e.type),
-  occurred_at: instant(e.occurredAt),
-  state: e.state,
-  plan: e.planHandle,
-  billing_period: billing(e.billingPeriod),
-  trial_days: e.trialDays,
-  trial_days_remaining: e.trialDaysRemaining,
-  cancel_effective_on: e.cancelEffectiveOn ? e.cancelEffectiveOn.toISOString().slice(0, 10) : null,
-  amount: money(e.amountCents),
-  currency: e.currency,
-  gross: money(e.grossCents),
-  net: money(e.netCents),
-  fee: money(e.feeCents),
-  uninstall_reasons: reasonLabels(e.reason),
-  merchant_text_untrusted: e.reasonDescription,
-})
+/** A payout record's gross with the sign of what it did to the payout, and its fee as everything Shopify kept, as the Revenue tab counts them. */
+const event = (e: TimelineEvent) => {
+  const ledger = LEDGER_TYPES.has(e.type) ? ledgerMoney(e) : null
+  return {
+    id: e.id,
+    type: e.type,
+    label: eventLabel(e.type),
+    occurred_at: instant(e.occurredAt),
+    state: e.state,
+    plan: e.planHandle,
+    billing_period: billing(e.billingPeriod),
+    trial_days: e.trialDays,
+    trial_days_remaining: e.trialDaysRemaining,
+    cancel_effective_on: e.cancelEffectiveOn ? e.cancelEffectiveOn.toISOString().slice(0, 10) : null,
+    amount: money(e.amountCents),
+    currency: e.currency,
+    gross: money(ledger ? ledger.grossCents : e.grossCents),
+    net: money(e.netCents),
+    fee: money(ledger ? ledger.grossCents - ledger.netCents : e.feeCents),
+    uninstall_reasons: reasonLabels(e.reason),
+    merchant_text_untrusted: e.reasonDescription,
+  }
+}
 
 export const getShopTimelineTool = defineTool({
   name: "get_shop_timeline",
@@ -82,7 +87,7 @@ export const getShopTimelineTool = defineTool({
     const notes = await sourceNotes(ctx, [app])
     if (excluded) notes.push("This shop is on the excluded list in Settings: it counts in no number, and no stays, plans or trials are worked out for it. Its events are kept and listed as Shopify reported them.")
     if (timeline.eventCount > timeline.events.length) notes.push(`The shop has ${timeline.eventCount} events; the latest ${timeline.events.length} are listed. Ask for up to ${MOST_EVENTS} with max_events.`)
-    if (totals.netEarnedCents === null) notes.push("net_earned is null because no earnings event of this shop is stored: Shopify sent none yet, or the token cannot read earnings.")
+    if (totals.netEarnedCents === null) notes.push("net_earned is null because no earnings record of this shop is stored (no payout record or earnings event): Shopify sent none yet, or the token cannot read them.")
 
     return envelope(
       {

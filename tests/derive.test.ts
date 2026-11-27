@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { DERIVE_VERSION, derive, monthlyCents, type DailyRow, type RawEvent } from "@/lib/analytics/derive"
+import { countsAsEarning, DERIVE_VERSION, derive, ledgerMoney, monthlyCents, type DailyRow, type RawEvent } from "@/lib/analytics/derive"
 import { LEGACY_EVENT_TYPES } from "@/lib/partner/query"
 
 const at = (iso: string) => new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso)
@@ -876,7 +876,7 @@ describe("subscription events after an uninstall", () => {
 
 describe("edge cases", () => {
   it("returns nothing for no events", () => {
-    expect(derive([], NOW, "UTC")).toEqual({ installs: [], subscriptions: [], trials: [], daily: [], orphanUninstalls: 0, ignoredAfterUninstall: 0 })
+    expect(derive([], NOW, "UTC")).toEqual({ installs: [], subscriptions: [], trials: [], daily: [], orphanUninstalls: 0, ignoredAfterUninstall: 0, ledgerUntil: null })
   })
 
   it("orders events on the same instant: install, then subscription, then uninstall", () => {
@@ -1092,5 +1092,119 @@ describe("time zones", () => {
     }
     expect(derive(events, NOW, "America/New_York").subscriptions[0].endedAt?.toISOString()).toBe("2026-01-31T05:00:00.000Z")
     expect(derive(events, NOW, "Asia/Dhaka").subscriptions[0].endedAt?.toISOString()).toBe("2026-01-30T18:00:00.000Z")
+  })
+})
+
+describe("earnings from Shopify's payout ledger", () => {
+  const shop = "s.myshopify.com"
+  const paid = (when: string, grossCents: number, netCents: number, type = "APP_SUBSCRIPTION_SALE") => ev(type, when, shop, { grossCents, netCents, feeCents: 0 })
+  const earned = (when: string, grossCents: number) => ev("EARNING_CHARGE_RECURRING", when, shop, { grossCents, netCents: grossCents, feeCents: 0 })
+  const total = (r: ReturnType<typeof derive>, key: keyof DailyRow) => r.daily.reduce((sum, d) => sum + (d[key] as number), 0)
+  /** The ledger read up to now: the steady state, where every earning comes from it. */
+  const READ = NOW
+  /** A ledger read only up to the end of 9 Jan, as when a sync stopped partway. */
+  const PART = new Date("2026-01-09T23:59:59Z")
+
+  // An example of the rule: twelve $24.99 charges and one $24.99 credit. The earning events report
+  // them after the revenue share only (0% here), so net equals gross. The payout records take off the
+  // 2.9% processing fee ($0.72), on two charges also a 2% regulatory operating fee ($0.50), and hand
+  // $0.50 back on the credit.
+  const charges = Array.from({ length: 12 }, (_, i) => `2026-01-${String(i + 2).padStart(2, "0")}`)
+  const events: RawEvent[] = [
+    ev("RELATIONSHIP_INSTALLED", "2026-01-01T09:00:00Z", shop),
+    ...charges.map((day) => earned(day, 2499)),
+    ev("EARNING_CREDIT", "2026-01-20", shop, { grossCents: -2499, netCents: -2499, feeCents: 0 }),
+    ...charges.map((day, i) => paid(day, 2499, i < 10 ? 2427 : 2377)),
+    paid("2026-01-20", -2499, -2449, "APP_SALE_CREDIT"),
+  ]
+
+  it("takes gross, fees and net from the ledger when it has been read up to now, to the cent", () => {
+    const r = derive(events, NOW, "UTC", READ)
+    expect(r.ledgerUntil).toEqual(READ)
+    expect(total(r, "netEarnedCents")).toBe(10 * 2427 + 2 * 2377 - 2449)
+    expect(total(r, "grossEarnedCents")).toBe(11 * 2499)
+    expect(total(r, "feeCents")).toBe(10 * 72 + 2 * 122 - 50)
+    expect(dayOf(r, "2026-01-02")).toMatchObject({ grossEarnedCents: 2499, netEarnedCents: 2427, feeCents: 72 })
+    expect(dayOf(r, "2026-01-12")).toMatchObject({ grossEarnedCents: 2499, netEarnedCents: 2377, feeCents: 122 })
+    expect(dayOf(r, "2026-01-20")).toMatchObject({ grossEarnedCents: -2499, netEarnedCents: -2449, feeCents: -50 })
+  })
+
+  it("falls back to the earning events, after the revenue share only, when the ledger has not been read", () => {
+    // No ledger stored, or rows stored by a first read that stopped before its first window was done (no watermark yet).
+    for (const r of [derive(events.filter((e) => !e.type.startsWith("APP_")), NOW, "UTC", READ), derive(events, NOW, "UTC", null), derive(events, NOW, "UTC")]) {
+      expect(r.ledgerUntil).toBeNull()
+      expect(total(r, "netEarnedCents")).toBe(11 * 2499)
+      expect(total(r, "grossEarnedCents")).toBe(11 * 2499)
+      expect(total(r, "feeCents")).toBe(0)
+    }
+  })
+
+  it("uses the ledger as far as it has been read and the earning events after that, so a partly read ledger leaves no day empty", () => {
+    const r = derive(events, NOW, "UTC", PART)
+    expect(r.ledgerUntil).toEqual(PART)
+    expect(dayOf(r, "2026-01-02")).toMatchObject({ grossEarnedCents: 2499, netEarnedCents: 2427, feeCents: 72 })
+    expect(dayOf(r, "2026-01-12")).toMatchObject({ grossEarnedCents: 2499, netEarnedCents: 2499, feeCents: 0 })
+    expect(dayOf(r, "2026-01-20")).toMatchObject({ grossEarnedCents: -2499, netEarnedCents: -2499, feeCents: 0 })
+    // Every charge counts once: eight from the ledger, four and the credit from the earning events.
+    expect(total(r, "grossEarnedCents")).toBe(11 * 2499)
+    expect(total(r, "netEarnedCents")).toBe(8 * 2427 + 4 * 2499 - 2499)
+  })
+
+  it("takes the earning events alone for an app with no ledger transaction by the time the ledger was read", () => {
+    const r = derive(events, NOW, "UTC", new Date("2026-01-01T23:00:00Z"))
+    expect(r.ledgerUntil).toBeNull()
+    expect(total(r, "netEarnedCents")).toBe(11 * 2499)
+  })
+
+  it("draws the line at the cutoff itself: a ledger transaction at that moment counts, an earning event at it does not", () => {
+    const moment = new Date("2026-01-10T12:00:00Z")
+    expect(countsAsEarning({ type: "APP_SUBSCRIPTION_SALE", occurredAt: moment }, moment)).toBe(true)
+    expect(countsAsEarning({ type: "EARNING_CHARGE_RECURRING", occurredAt: moment }, moment)).toBe(false)
+    expect(countsAsEarning({ type: "EARNING_CHARGE_RECURRING", occurredAt: moment }, null)).toBe(true)
+    expect(countsAsEarning({ type: "APP_SUBSCRIPTION_SALE", occurredAt: moment }, null)).toBe(false)
+    expect(countsAsEarning({ type: "CHARGE_RECURRING", occurredAt: moment }, moment)).toBe(false)
+  })
+
+  it("keeps net plus fees equal to gross on every day, from either source and with both", () => {
+    const cases: [RawEvent[], Date | null][] = [[events, READ], [events, PART], [events, null], [history, READ]]
+    for (const [list, read] of cases) {
+      for (const d of derive(list, NOW, "UTC", read).daily) expect(d.netEarnedCents + d.feeCents, d.date).toBe(d.grossEarnedCents)
+    }
+  })
+
+  it("gives a credit's or a refund's gross the sign of what it took off the payout", () => {
+    expect(ledgerMoney({ grossCents: 2499, netCents: 2427 })).toEqual({ grossCents: 2499, netCents: 2427 })
+    expect(ledgerMoney({ grossCents: -2499, netCents: -2449 })).toEqual({ grossCents: -2499, netCents: -2449 })
+    expect(ledgerMoney({ grossCents: 2499, netCents: -2449 })).toEqual({ grossCents: -2499, netCents: -2449 })
+    expect(ledgerMoney({ grossCents: null, netCents: -2449 })).toEqual({ grossCents: -2449, netCents: -2449 })
+    expect(ledgerMoney({ grossCents: 2499, netCents: 0 })).toEqual({ grossCents: 0, netCents: 0 })
+    const r = derive([ev("RELATIONSHIP_INSTALLED", "2026-01-01", shop), paid("2026-01-05", 2499, -2449, "APP_SALE_ADJUSTMENT")], NOW, "UTC", READ)
+    expect(dayOf(r, "2026-01-05")).toMatchObject({ grossEarnedCents: -2499, netEarnedCents: -2449, feeCents: -50 })
+  })
+
+  it("still counts charges, refunds and credits applied from their own events", () => {
+    const r = derive(
+      [
+        ...events,
+        ev("CHARGE_RECURRING", "2026-01-02", shop, { amountCents: 2499 }),
+        ev("EARNING_REFUND", "2026-01-25", shop, { grossCents: -2499, netCents: -2499, feeCents: 0 }),
+        ev("CREDIT_APPLIED", "2026-01-19", shop, { amountCents: 2499 }),
+      ],
+      NOW,
+      "UTC",
+      READ,
+    )
+    expect(dayOf(r, "2026-01-02").chargedCents).toBe(2499)
+    // The refund's value still counts as refunded; its money is in the ledger, not added again.
+    expect(dayOf(r, "2026-01-25")).toMatchObject({ refundedCents: 2499, grossEarnedCents: 0, netEarnedCents: 0 })
+    expect(dayOf(r, "2026-01-19").creditCents).toBe(2499)
+  })
+
+  it("never reads a ledger transaction as an install or a subscription", () => {
+    const r = derive([paid("2026-01-05", 2499, 2427), ev("RELATIONSHIP_UNINSTALLED", "2026-01-06", shop)], NOW, "UTC", READ)
+    expect(r.installs).toEqual([])
+    expect(r.subscriptions).toEqual([])
+    expect(r.orphanUninstalls).toBe(1)
+    expect(dayOf(r, "2026-01-05")).toMatchObject({ activeInstalls: 0, activeSubs: 0, netEarnedCents: 2427 })
   })
 })

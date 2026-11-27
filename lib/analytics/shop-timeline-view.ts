@@ -1,6 +1,6 @@
 import { formatDateTime, formatDays, formatInt, formatMoney } from "@/lib/format"
 import { formatDate } from "./range"
-import { monthlyCents } from "./derive"
+import { ledgerMoney, monthlyCents } from "./derive"
 import { eventLabel, reasonLabel } from "./labels"
 import type { ShopTimeline, TimelineEvent, TimelineSubscription } from "./shop-timeline"
 
@@ -146,6 +146,12 @@ function lasted(ms: number): string {
   return formatDays(ms / DAY_MS)
 }
 
+/** "$24.99 gross, $24.27 to your payout, Shopify's fees $0.72": a ledger transaction, every fee taken off. */
+function payoutWords(e: TimelineEvent): string {
+  const { grossCents, netCents } = ledgerMoney(e)
+  return `${formatMoney(grossCents)} gross, ${formatMoney(netCents)} to your payout, Shopify's fees ${formatMoney(grossCents - netCents)}`
+}
+
 /** "$20 gross, $17 net, Shopify's fee $3", each with the sign Shopify gave it. */
 function earningWords(e: TimelineEvent): string | null {
   const parts = [
@@ -281,6 +287,13 @@ export function timelineRows(t: Pick<ShopTimeline, "stays" | "subscriptions" | "
       case "CREDIT_APPLIED":
       case "CREDIT_FAILED":
         return { ...base, title: eventLabel(e.type), detail: e.amountCents === null ? null : `${formatMoney(e.amountCents)} of app credit`, tone: "money" }
+      case "APP_SUBSCRIPTION_SALE":
+      case "APP_ONE_TIME_SALE":
+      case "APP_USAGE_SALE":
+      case "APP_SALE_CREDIT":
+      case "APP_SALE_ADJUSTMENT":
+        // A transaction that took money off the payout (a refund, an adjustment) reads as a loss.
+        return { ...base, title: eventLabel(e.type), detail: payoutWords(e), tone: (e.netCents ?? 0) < 0 && e.type === "APP_SALE_ADJUSTMENT" ? "loss" : "money" }
       default: {
         const why = reasonsLabel(e.reason)
         return {

@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull, lt, or, sql } from "drizzle-orm"
 import type { Db } from "@/lib/db/client"
-import { apps, dailyMetrics, events, excludedShops, installs, subscriptions, trials } from "@/lib/db/schema"
+import { apps, connections, dailyMetrics, events, excludedShops, installs, subscriptions, trials } from "@/lib/db/schema"
 import { startOfDay, todayIn } from "@/lib/time-zone"
 import { DERIVE_VERSION, derive } from "./derive"
 import { readTimeZone } from "./queries"
@@ -24,8 +24,10 @@ async function insertChunked<T>(rows: T[], write: (chunk: T[]) => Promise<unknow
  */
 export async function rebuildApp(db: Db, appId: string, timeZone: string, now: Date = new Date()): Promise<void> {
   await db.transaction(async (tx) => {
-    const [app] = await tx.select({ id: apps.id }).from(apps).where(eq(apps.id, appId)).for("no key update")
+    const [app] = await tx.select({ id: apps.id, connectionId: apps.connectionId }).from(apps).where(eq(apps.id, appId)).for("no key update")
     if (!app) return
+    // How far the sync has read the payout ledger: earnings come from it up to then (derive()).
+    const [source] = await tx.select({ ledgerReadUntil: connections.transactionsWatermark }).from(connections).where(eq(connections.id, app.connectionId))
 
     const raw = await tx
       .select({
@@ -49,7 +51,7 @@ export async function rebuildApp(db: Db, appId: string, timeZone: string, now: D
       // Then by id, so events at the same instant reach derive() in the same order on every rebuild.
       .orderBy(asc(events.occurredAt), asc(events.id))
 
-    const result = derive(raw, now, timeZone)
+    const result = derive(raw, now, timeZone, source?.ledgerReadUntil ?? null)
 
     await tx.delete(installs).where(eq(installs.appId, appId))
     await tx.delete(subscriptions).where(eq(subscriptions.appId, appId))
@@ -61,7 +63,10 @@ export async function rebuildApp(db: Db, appId: string, timeZone: string, now: D
     await insertChunked(result.trials, (chunk) => tx.insert(trials).values(chunk.map((r) => ({ ...r, appId }))))
     await insertChunked(result.daily, (chunk) => tx.insert(dailyMetrics).values(chunk.map((r) => ({ ...r, appId }))))
 
-    await tx.update(apps).set({ dirty: false, derivedAt: now, deriveVersion: DERIVE_VERSION, derivedTimeZone: timeZone }).where(eq(apps.id, appId))
+    await tx
+      .update(apps)
+      .set({ dirty: false, derivedAt: now, deriveVersion: DERIVE_VERSION, derivedTimeZone: timeZone, ledgerUntil: result.ledgerUntil })
+      .where(eq(apps.id, appId))
   })
 }
 

@@ -11,16 +11,24 @@ export function createDbSyncStore(db: Db, connectionId: string): SyncStore {
   return {
     async watermarks() {
       const [row] = await db
-        .select({ core: connections.coreWatermark, earnings: connections.earningsWatermark, legacy: connections.legacyWatermark })
+        .select({
+          core: connections.coreWatermark,
+          earnings: connections.earningsWatermark,
+          transactions: connections.transactionsWatermark,
+          legacy: connections.legacyWatermark,
+        })
         .from(connections)
         .where(eq(connections.id, connectionId))
-      return { core: row?.core ?? null, earnings: row?.earnings ?? null, legacy: row?.legacy ?? null }
+      return { core: row?.core ?? null, earnings: row?.earnings ?? null, transactions: row?.transactions ?? null, legacy: row?.legacy ?? null }
     },
     async setWatermark(pass, at) {
-      await db
-        .update(connections)
-        .set(pass === "core" ? { coreWatermark: at } : pass === "earnings" ? { earningsWatermark: at } : { legacyWatermark: at })
-        .where(eq(connections.id, connectionId))
+      const column = {
+        core: { coreWatermark: at },
+        earnings: { earningsWatermark: at },
+        transactions: { transactionsWatermark: at },
+        legacy: { legacyWatermark: at },
+      }[pass]
+      await db.update(connections).set(column).where(eq(connections.id, connectionId))
     },
     insertEvents: (list) => insertEvents(db, connectionId, list),
     async appGids() {

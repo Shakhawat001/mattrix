@@ -236,6 +236,29 @@ describe("the shop timeline in plain words", () => {
     expect(rows.slice(1).map((r) => r.tone)).toEqual(["money", "money", "money", "money", "money", "loss", "money", "money", "money", "money", "money"])
   })
 
+  it("tells what each payout record left you after every Shopify fee, a refund as a loss", () => {
+    const rows = timelineRows(
+      timelineOf([
+        ev("RELATIONSHIP_INSTALLED", "2026-01-01"),
+        ev("APP_SUBSCRIPTION_SALE", "2026-01-02", { grossCents: 2499, netCents: 2427, feeCents: 0 }),
+        ev("APP_ONE_TIME_SALE", "2026-01-03", { grossCents: 5000, netCents: 4855, feeCents: 0 }),
+        ev("APP_USAGE_SALE", "2026-01-04", { grossCents: null, netCents: 97, feeCents: null }),
+        // Shopify may send a credit's gross without a sign: it takes the sign of what left the payout.
+        ev("APP_SALE_CREDIT", "2026-01-05", { grossCents: 2499, netCents: -2449, feeCents: 0 }),
+        ev("APP_SALE_ADJUSTMENT", "2026-01-06", { grossCents: -2499, netCents: -2427, feeCents: 0 }),
+      ]),
+      "UTC",
+    )
+    expect(said(rows).slice(1)).toEqual([
+      { title: "Payout record: recurring", detail: "$24.99 gross, $24.27 to your payout, Shopify's fees $0.72" },
+      { title: "Payout record: one-time", detail: "$50 gross, $48.55 to your payout, Shopify's fees $1.45" },
+      { title: "Payout record: usage", detail: "$0.97 gross, $0.97 to your payout, Shopify's fees $0" },
+      { title: "Payout record: credit", detail: "-$24.99 gross, -$24.49 to your payout, Shopify's fees -$0.50" },
+      { title: "Payout record: adjustment", detail: "-$24.99 gross, -$24.27 to your payout, Shopify's fees -$0.72" },
+    ])
+    expect(rows.slice(1).map((r) => r.tone)).toEqual(["money", "money", "money", "money", "loss"])
+  })
+
   it("keeps the merchant's words exactly as Shopify sent them, on any event that has them", () => {
     const words = `He said "no" & <b>left</b>\n  Second line, with   spaces. Très cher 💸`
     const rows = timelineRows(

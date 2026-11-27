@@ -20,9 +20,12 @@ import {
 } from "@/lib/analytics/queries"
 import { cohortRetention } from "@/lib/analytics/aggregate"
 import { DERIVE_VERSION, derive } from "@/lib/analytics/derive"
+import { getEarningsBreakdown } from "@/lib/analytics/earnings"
 import { rebuildApp, rebuildStaleApps } from "@/lib/analytics/rebuild"
+import { getShopTimeline } from "@/lib/analytics/shop-timeline"
+import { getShopTotals } from "@/lib/analytics/shop-totals"
 import type { Database } from "@/lib/db/client"
-import { apps, connections, dailyMetrics, events, installs, settings, subscriptions, syncRuns, trials } from "@/lib/db/schema"
+import { apps, connections, dailyMetrics, events, excludedShops, installs, settings, subscriptions, syncRuns, trials } from "@/lib/db/schema"
 import { generateDemoEvents } from "@/lib/demo/generate"
 import { createPartnerClient } from "@/lib/partner/client"
 import type { ParsedEvent } from "@/lib/partner/parse"
@@ -596,20 +599,26 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
       charge,
     })
     /** Answers like Shopify: `core` to the core query, nothing to earnings, `billing` to the older App.events. */
-    function shopify(core: unknown[], billing: unknown[] = []) {
+    /** `billing`: the billing screen events of App.events. `ledger`: the payout records of the transactions query. */
+    function shopify(core: unknown[], billing: unknown[] = [], ledger: unknown[] = []) {
       const appIds: string[] = []
+      const ledgerAppIds: string[] = []
       const client = createPartnerClient({
         partnerId: "42",
         token: "tok",
         sleep: async () => {},
         fetch: async (_url, init) => {
           const { query, variables } = JSON.parse(String(init.body))
+          if (query.includes("AppMetricsTransactions")) {
+            ledgerAppIds.push(variables.appId)
+            return new Response(JSON.stringify({ data: { transactions: { pageInfo: { hasNextPage: false }, edges: ledger.map((n, i) => ({ cursor: `t${i}`, node: n })) } } }))
+          }
           if (!query.includes("AppMetricsLegacyEvents")) return response(variables.filter.eventTypes.includes("RELATIONSHIP_INSTALLED") ? core : [])
           appIds.push(variables.appId)
           return new Response(JSON.stringify({ data: { app: { events: { pageInfo: { hasNextPage: false }, edges: billing.map((n, i) => ({ cursor: `c${i}`, node: n })) } } } }))
         },
       })
-      return { client, appIds }
+      return { client, appIds, ledgerAppIds }
     }
     const connection = async () => (await database.db.select().from(connections).where(eq(connections.id, connectionId)))[0]
 
@@ -619,10 +628,11 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
       const options = { client, store, backfillFrom: new Date("2026-01-01T00:00:00Z"), now: NOW }
 
       const first = await syncConnection(options)
-      expect(first).toMatchObject({ ok: true, inserted: 2, appsSeen: 1, earningsError: null, legacyError: null })
+      expect(first).toMatchObject({ ok: true, inserted: 2, appsSeen: 1, earningsError: null, transactionsError: null, legacyError: null })
       const c = await connection()
       expect(c.coreWatermark?.toISOString()).toBe(NOW.toISOString())
       expect(c.earningsWatermark?.toISOString()).toBe(NOW.toISOString())
+      expect(c.transactionsWatermark?.toISOString()).toBe(NOW.toISOString())
       expect(c.legacyWatermark?.toISOString()).toBe(NOW.toISOString())
 
       const second = await syncConnection(options)
@@ -633,6 +643,34 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
       const [stay] = await database.db.select().from(installs)
       expect(stay.shop).toBe("a.myshopify.com")
       expect(stay.uninstalledAt).not.toBeNull()
+    })
+
+    it("stores the payout records once, under the app the core pass found, and the rebuild takes earnings from them", async () => {
+      const sale = {
+        __typename: "AppSubscriptionSale",
+        id: "gid://partners/AppSubscriptionSale/1",
+        createdAt: "2026-01-07T10:00:00Z",
+        app: { id: "gid://partners/App/1" },
+        chargeId: "gid://shopify/AppSubscription/9",
+        shop: { id: "gid://partners/Shop/1", myshopifyDomain: "A.myshopify.com" },
+        grossAmount: { amount: "24.99", currencyCode: "USD" },
+        netAmount: { amount: "24.27", currencyCode: "USD" },
+        shopifyFee: { amount: "0.00", currencyCode: "USD" },
+      }
+      const { client, ledgerAppIds } = shopify([node("e1", "RELATIONSHIP_INSTALLED", "2026-01-05T10:00:00Z", "a.myshopify.com")], [], [sale])
+      const options = { client, store: createDbSyncStore(database.db, connectionId), backfillFrom: new Date("2026-01-01T00:00:00Z"), now: NOW }
+
+      expect(await syncConnection(options)).toMatchObject({ ok: true, transactionsError: null })
+      expect(new Set(ledgerAppIds)).toEqual(new Set(["gid://partners/App/1"]))
+      expect((await connection()).transactionsWatermark?.toISOString()).toBe(NOW.toISOString())
+      const [app] = await database.db.select().from(apps)
+      const stored = (await database.db.select().from(events)).filter((e) => e.type === "APP_SUBSCRIPTION_SALE")
+      expect(stored).toHaveLength(1)
+      expect(stored[0]).toMatchObject({ appId: app.id, id: "transaction:gid://partners/AppSubscriptionSale/1", shop: "a.myshopify.com", grossCents: 2499, netCents: 2427, feeCents: 0 })
+
+      await rebuildStaleApps(database.db, NOW)
+      const range = { from: "2026-01-01", to: "2026-02-10" }
+      expect(kpisFor(await getDayRows(database.db, [app.id], range), range)).toMatchObject({ grossEarned: 2499, netEarned: 2427, fees: 72 })
     })
 
     it("stores the billing screen events once, under the app the core pass found, and derives nothing from them", async () => {
@@ -678,6 +716,78 @@ describe.skipIf(!hasDatabase)("events to numbers (Postgres)", () => {
       expect(overview).toMatchObject({ label: "Test org", tokenHint: "abcd", apps: 1, events: history.length })
       expect(overview.runs).toHaveLength(1)
       expect(JSON.stringify(overview)).not.toContain("tokenCiphertext")
+    })
+  })
+
+  describe("earnings from Shopify's payout ledger", () => {
+    // Shop A's $20 charge: its earning event says $17 after a $3 revenue share; the ledger also takes
+    // off the processing fee. A credit of $3 costs $2.91 of payout. Shop X pays $10 and has no other events.
+    const tx = (id: string, type: string, when: string, shop: string, grossCents: number, netCents: number, feeCents = 0) =>
+      pe(type, when, shop, { id: `transaction:gid://partners/${id}`, grossCents, netCents, feeCents, appName: null, appApiKey: null })
+    const ledger = [
+      tx("AppSubscriptionSale/1", "APP_SUBSCRIPTION_SALE", "2026-01-11", "a.myshopify.com", 2000, 1642, 300),
+      tx("AppSaleCredit/2", "APP_SALE_CREDIT", "2026-01-26", "a.myshopify.com", -300, -291),
+      tx("AppSubscriptionSale/3", "APP_SUBSCRIPTION_SALE", "2026-01-20", "x.myshopify.com", 1000, 971),
+    ]
+    const range = { from: "2026-01-01", to: "2026-02-10" }
+    /** As the sync leaves it after reading the ledger up to `at`. */
+    const ledgerReadUntil = (at: Date) => database.db.update(connections).set({ transactionsWatermark: at }).where(eq(connections.id, connectionId))
+
+    it("takes earnings from the ledger once it has been read: the rollup, the breakdown, a shop's totals and its timeline agree", async () => {
+      await ledgerReadUntil(NOW)
+      await load([...history, ...ledger])
+      const [app] = await database.db.select({ ledgerUntil: apps.ledgerUntil }).from(apps)
+      expect(app.ledgerUntil?.toISOString()).toBe(NOW.toISOString())
+      const k = kpisFor(await getDayRows(database.db, [appId], range), range)
+      expect(k).toMatchObject({ grossEarned: 2700, netEarned: 2322, fees: 378 })
+      const breakdown = await getEarningsBreakdown(database.db, appId, range, "UTC")
+      expect(breakdown).toMatchObject({ lines: { recurring: 2613, oneTime: 0, usage: 0, credits: -291, adjustments: 0 }, total: 2322 })
+      expect(breakdown.ledgerUntil?.toISOString()).toBe(NOW.toISOString())
+      expect((await getShopTotals(database.db, appId, "A.myshopify.com")).netEarnedCents).toBe(1351)
+      const timeline = (await getShopTimeline(database.db, appId, "a.myshopify.com"))!
+      const types = timeline.events.map((e) => e.type)
+      expect(types).toContain("APP_SUBSCRIPTION_SALE")
+      expect(types.some((t) => t.startsWith("EARNING_"))).toBe(false)
+      expect(timeline.eventCount).toBe(timeline.events.length)
+    })
+
+    it("uses the earning events after the point the ledger has been read to, everywhere alike", async () => {
+      // Read up to 15 Jan: A's sale comes from the ledger; X's sale (20 Jan) and A's credit (26 Jan) are past it.
+      // A has no earning event after it, and X has none at all, so only A's sale counts.
+      await ledgerReadUntil(new Date("2026-01-15T00:00:00Z"))
+      await load([...history, ...ledger])
+      const k = kpisFor(await getDayRows(database.db, [appId], range), range)
+      expect(k).toMatchObject({ grossEarned: 2000, netEarned: 1642, fees: 358 })
+      expect((await getEarningsBreakdown(database.db, appId, range, "UTC")).total).toBe(1642)
+      expect((await getShopTotals(database.db, appId, "a.myshopify.com")).netEarnedCents).toBe(1642)
+    })
+
+    it("leaves an excluded shop's transactions out, as every other number does", async () => {
+      await ledgerReadUntil(NOW)
+      await database.db.insert(excludedShops).values({ shop: "x.myshopify.com" })
+      await load([...history, ...ledger])
+      const k = kpisFor(await getDayRows(database.db, [appId], range), range)
+      expect(k).toMatchObject({ grossEarned: 1700, netEarned: 1351 })
+      expect((await getEarningsBreakdown(database.db, appId, range, "UTC")).total).toBe(1351)
+    })
+
+    it("takes the earning events alone when no ledger is stored or it has not been read", async () => {
+      await load([...history, ...ledger])
+      const k = kpisFor(await getDayRows(database.db, [appId], range), range)
+      expect(k).toMatchObject({ grossEarned: 2000, netEarned: 1700, fees: 300 })
+      expect(await getEarningsBreakdown(database.db, appId, range, "UTC")).toMatchObject({ ledgerUntil: null, total: 1700 })
+      expect((await getShopTotals(database.db, appId, "a.myshopify.com")).netEarnedCents).toBe(1700)
+      const timeline = (await getShopTimeline(database.db, appId, "a.myshopify.com"))!
+      expect(timeline.events.map((e) => e.type)).not.toContain("APP_SUBSCRIPTION_SALE")
+    })
+
+    it("keeps the ledger's own watermark and error on the connection", async () => {
+      const store = createDbSyncStore(database.db, connectionId)
+      await store.setWatermark("transactions", NOW)
+      expect((await store.watermarks()).transactions?.toISOString()).toBe(NOW.toISOString())
+      expect((await store.watermarks()).earnings).toBeNull()
+      await database.db.update(connections).set({ transactionsError: "Access denied" }).where(eq(connections.id, connectionId))
+      expect((await getConnections(database.db))[0].transactionsError).toBe("Access denied")
     })
   })
 

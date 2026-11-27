@@ -1,4 +1,4 @@
-import { EVENT, LEGACY_EVENT_TYPES } from "@/lib/partner/query"
+import { EVENT, LEGACY_EVENT_TYPES, TRANSACTION_TYPES } from "@/lib/partner/query"
 import { dayIn, startOfDay } from "@/lib/time-zone"
 import { addDays } from "./range"
 
@@ -36,19 +36,63 @@ import { addDays } from "./range"
 //     an unfreeze between a shop's uninstall and its next install (Shopify can send one late) is
 //     counted and otherwise ignored. A shop with no install or uninstall seen yet installed before
 //     the history starts, so its subscription events count as usual.
+//   - Earnings come from Shopify's payout ledger (its transactions) as far as it has been read, and
+//     from the earning events after that. Only the ledger's net is what reached the payout, after the
+//     2.9% processing fee and any regulatory operating fee as well as the revenue share; an earning
+//     event's net is after the revenue share only. The ledger is used up to its watermark (how far
+//     the sync has read it), so a ledger read only partly never leaves later days empty, and each
+//     moment has one source, so a charge is not counted twice. In steady state the watermark is the
+//     last sync, so every earning comes from the ledger. An app with no ledger transaction read yet
+//     takes all its earnings from the earning events.
 
 /**
  * The version of these rules. Each app stores the version its derived tables were built with, and
  * the worker rebuilds any app built with an older one, so a deploy that changes a rule recomputes
  * all of history. Bump it with every change to what derive() returns.
  */
-export const DERIVE_VERSION = 7
+export const DERIVE_VERSION = 8
 
 const DAY_MS = 86_400_000
 /** A cancel and a new subscription this close together are one plan change, not a loss and a new sale. */
 const REPLACE_WINDOW_MS = 10 * 60_000
 /** What merchants did on the billing screen (the older App.events). Counted on their own, never replayed here. */
 const BILLING_SCREEN_TYPES: ReadonlySet<string> = new Set(LEGACY_EVENT_TYPES)
+/** Shopify's payout ledger: sales, credits and adjustments. Money only, never replayed here. */
+export const LEDGER_TYPES: ReadonlySet<string> = new Set(TRANSACTION_TYPES)
+
+/**
+ * A ledger transaction's gross and net, with one sign. Its net is what was added to or taken off
+ * the payout, so its sign is the transaction's: a sale adds, a credit or an adjustment usually takes
+ * off. The gross takes that sign too, whichever sign Shopify gave it, so the fees (gross minus net)
+ * of a credit or a refund come out negative by whatever part of its fees Shopify handed back.
+ */
+export function ledgerMoney(e: { grossCents: number | null; netCents: number | null }): { grossCents: number; netCents: number } {
+  const net = e.netCents ?? 0
+  const gross = Math.abs(e.grossCents ?? net)
+  return { grossCents: net < 0 ? -gross : net > 0 ? gross : 0, netCents: net }
+}
+
+/**
+ * The moment up to which an app's earnings come from the payout ledger: how far the ledger has been
+ * read, when the app has a ledger transaction by then. Null when it has none, so its earnings come
+ * from the earning events alone (a token without View financials, a pass that has not read anything
+ * yet, or an app that has never sold anything).
+ */
+export function ledgerCutoff(events: { type: string; occurredAt: Date }[], ledgerReadUntil: Date | null): Date | null {
+  if (!ledgerReadUntil) return null
+  const until = ledgerReadUntil.getTime()
+  return events.some((e) => LEDGER_TYPES.has(e.type) && e.occurredAt.getTime() <= until) ? ledgerReadUntil : null
+}
+
+/**
+ * Does this row count toward gross, fees and net earnings, given the app's cutoff? Ledger
+ * transactions up to the cutoff, earning events after it; with no cutoff, the earning events alone.
+ */
+export function countsAsEarning(e: { type: string; occurredAt: Date }, cutoff: Date | null): boolean {
+  if (LEDGER_TYPES.has(e.type)) return cutoff !== null && e.occurredAt.getTime() <= cutoff.getTime()
+  if (e.type.startsWith("EARNING_")) return cutoff === null || e.occurredAt.getTime() > cutoff.getTime()
+  return false
+}
 
 export type RawEvent = {
   type: string
@@ -154,6 +198,8 @@ export type Derived = {
   orphanUninstalls: number
   /** Subscription creations, updates and unfreezes between a shop's uninstall and its next install: ignored, since an uninstall cancels the app's subscriptions. */
   ignoredAfterUninstall: number
+  /** Up to when earnings came from the payout ledger (ledgerCutoff()). Readers of earnings outside the rollup follow it. */
+  ledgerUntil: Date | null
 }
 
 /** A yearly price spread over twelve months. Anything else is taken as one month. */
@@ -221,7 +267,8 @@ function scheduleCancel(p: Period, at: Date, effective: Date) {
   p.cancelEffectiveAt = effective
 }
 
-export function derive(events: RawEvent[], now: Date, timeZone: string): Derived {
+/** `ledgerReadUntil`: how far the sync has read the app's payout ledger (its connection's watermark for it), or null. */
+export function derive(events: RawEvent[], now: Date, timeZone: string, ledgerReadUntil: Date | null = null): Derived {
   /**
    * Shopify's cancelEffectiveOn is a date with no time ("2026-02-10"), stored as midnight UTC of it.
    * The cancellation takes effect as that day begins where the dashboard counts days, so it
@@ -376,8 +423,10 @@ export function derive(events: RawEvent[], now: Date, timeZone: string): Derived
   }
 
   for (const e of sorted) {
-    const isMoney = e.type.startsWith("CHARGE_") || e.type.startsWith("EARNING_") || e.type.startsWith("CREDIT_")
+    const isMoney = e.type.startsWith("CHARGE_") || e.type.startsWith("EARNING_") || e.type.startsWith("CREDIT_") || LEDGER_TYPES.has(e.type)
     if (isMoney) moneyEvents.push(e)
+    // A ledger transaction says what reached the payout, nothing about installs or subscriptions.
+    if (LEDGER_TYPES.has(e.type)) continue
     if (e.type === EVENT.UNINSTALLED) uninstallDates.push(e.occurredAt)
     if (!e.shop) {
       if (e.type === EVENT.UNINSTALLED) orphanUninstalls++
@@ -502,13 +551,15 @@ export function derive(events: RawEvent[], now: Date, timeZone: string): Derived
     cancelEffectiveAt: p.cancelEffectiveAt,
   }))
 
+  const ledgerUntil = ledgerCutoff(moneyEvents, ledgerReadUntil)
   return {
     installs,
     subscriptions,
     trials,
-    daily: buildDaily({ sorted, installs, periods, trials, uninstallDates, inactiveUninstallDates, moneyEvents, now, timeZone }),
+    daily: buildDaily({ sorted, installs, periods, trials, uninstallDates, inactiveUninstallDates, moneyEvents, ledgerUntil, now, timeZone }),
     orphanUninstalls,
     ignoredAfterUninstall,
+    ledgerUntil,
   }
 }
 
@@ -540,10 +591,12 @@ function buildDaily(input: {
   /** The uninstalls of stores Shopify had deactivated. */
   inactiveUninstallDates: Date[]
   moneyEvents: RawEvent[]
+  /** Up to when earnings come from the payout ledger (ledgerCutoff()). */
+  ledgerUntil: Date | null
   now: Date
   timeZone: string
 }): DailyRow[] {
-  const { sorted, installs, periods, trials, uninstallDates, inactiveUninstallDates, moneyEvents, now, timeZone } = input
+  const { sorted, installs, periods, trials, uninstallDates, inactiveUninstallDates, moneyEvents, ledgerUntil, now, timeZone } = input
   if (sorted.length === 0) return []
 
   // Every day from the first event's to today's. An event after now goes on the last day.
@@ -659,15 +712,25 @@ function buildDaily(input: {
     if (t.outcome === "canceled" && t.resolvedAt) f.trialsCanceled[at(t.resolvedAt.getTime())]++
   }
 
+  // Earnings from the payout ledger up to the cutoff and from the earning events after it
+  // (countsAsEarning). The ledger's fee is everything Shopify kept (gross minus what reached the
+  // payout); an earning event's is the revenue share it reports, which is all an earning event takes off.
   for (const e of moneyEvents) {
     const day = at(e.occurredAt.getTime())
     if (e.type.startsWith("CHARGE_")) f.charged[day] += e.amountCents ?? 0
-    else if (e.type.startsWith("EARNING_")) {
+    else if (e.type === EVENT.CREDIT_APPLIED) f.credit[day] += e.amountCents ?? 0
+    if (e.type === EVENT.EARNING_REFUND) f.refunded[day] += Math.abs(e.grossCents ?? e.netCents ?? 0)
+    if (!countsAsEarning(e, ledgerUntil)) continue
+    if (LEDGER_TYPES.has(e.type)) {
+      const { grossCents, netCents } = ledgerMoney(e)
+      f.gross[day] += grossCents
+      f.net[day] += netCents
+      f.fee[day] += grossCents - netCents
+    } else {
       f.gross[day] += e.grossCents ?? 0
       f.net[day] += e.netCents ?? 0
       f.fee[day] += e.feeCents ?? 0
-      if (e.type === EVENT.EARNING_REFUND) f.refunded[day] += Math.abs(e.grossCents ?? e.netCents ?? 0)
-    } else if (e.type === EVENT.CREDIT_APPLIED) f.credit[day] += e.amountCents ?? 0
+    }
   }
 
   const rows: DailyRow[] = []

@@ -6,6 +6,7 @@ import { PageNav } from "@/components/app/page-nav"
 import { ParamSelect, SearchBox } from "@/components/app/table-controls"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { LEDGER_TYPES, ledgerMoney } from "@/lib/analytics/derive"
 import { eventLabel, reasonLabel } from "@/lib/analytics/labels"
 import type { SearchParams } from "@/lib/analytics/page-params"
 import { listEventTypes, listEvents, type EventRow } from "@/lib/analytics/queries"
@@ -20,12 +21,19 @@ export const metadata: Metadata = { title: "Events" }
 
 const PAGE_SIZE = 50
 
-/** What the event says beyond its type: the plan, the money, the reason. */
+/**
+ * What the event says beyond its type: the plan, the money, the reason. A payout record's net is what
+ * reached the payout; an earning event's is what was left after Shopify's revenue share.
+ */
 function details(e: EventRow): string {
   const parts: string[] = []
   if (e.planHandle) parts.push(`${e.planHandle}${e.billingPeriod ? (e.billingPeriod === "ANNUAL" ? ", yearly" : ", monthly") : ""}`)
   if (e.amountCents !== null) parts.push(formatMoney(e.amountCents))
-  if (e.netCents !== null) parts.push(`${formatMoney(e.netCents)} after fee`)
+  if (e.netCents !== null) {
+    if (LEDGER_TYPES.has(e.type)) parts.push(`${formatMoney(ledgerMoney(e).grossCents)} gross, ${formatMoney(e.netCents)} to payout`)
+    else if (e.type.startsWith("EARNING_")) parts.push(`${formatMoney(e.netCents)} after revenue share`)
+    else parts.push(`${formatMoney(e.netCents)} after fee`)
+  }
   if (e.reason) parts.push(e.reason.split(",").map((r) => reasonLabel(r.trim())).join(", "))
   if (e.reasonDescription) parts.push(`"${e.reasonDescription}"`)
   return parts.join(" | ")

@@ -55,7 +55,7 @@ Please report a vulnerability privately, not in a public issue. Use the reposito
 - Serve it over https. Never over plain http on a server.
 - Choose a long password, or better a hash of one, and keep `SESSION_SECRET` and `ENCRYPTION_KEY` private and backed up.
 - Set `PROXY_HOPS` to the number of proxies in front of the app.
-- Give the Partner API client the smallest permission that lets it read your apps.
+- Give the Partner API client the smallest permissions that read what you need: "Manage apps", plus "View financials" for net earnings after every Shopify fee. Shopify's View financials also allows canceling Shopify App Pricing subscriptions. AppMetrics never sends a mutation, but a leaked token could, so leave it out if you can do without net earnings after the processing fee.
 - Treat the database and its backups as sensitive: they hold your shops' domains and the comments merchants wrote when they uninstalled.
 - Keep the image updated.
 

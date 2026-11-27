@@ -52,12 +52,16 @@ export const connections = pgTable("connections", {
   syncRequestedAt: tz("sync_requested_at"),
   coreWatermark: tz("core_watermark"),
   earningsWatermark: tz("earnings_watermark"),
+  /** How far the payout ledger (Shopify's transactions) has been read. */
+  transactionsWatermark: tz("transactions_watermark"),
   /** How far the billing screen events of the older App.events have been read. */
   legacyWatermark: tz("legacy_watermark"),
   lastRunAt: tz("last_run_at"),
   lastOkAt: tz("last_ok_at"),
   lastError: text("last_error"),
   earningsError: text("earnings_error"),
+  /** Why the payout ledger could not be read, usually a token without View financials. Net earnings then leave out the processing fee. */
+  transactionsError: text("transactions_error"),
   /** Why the billing screen events could not be read. Everything else still syncs. */
   legacyError: text("legacy_error"),
   createdAt: tz("created_at").notNull().defaultNow(),
@@ -88,6 +92,12 @@ export const apps = pgTable(
     deriveVersion: integer("derive_version").notNull().default(0),
     /** The time zone the derived tables were built in. When Settings names another, they are rebuilt. */
     derivedTimeZone: text("derived_time_zone"),
+    /**
+     * Up to when the last rebuild took this app's earnings from Shopify's payout ledger, and from the
+     * earning events after it (derive()'s ledgerUntil). Null: from the earning events alone. Every
+     * reader of earnings outside the rollup follows it, so they agree with the rollup.
+     */
+    ledgerUntil: tz("ledger_until"),
     createdAt: tz("created_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("apps_connection_gid_uq").on(t.connectionId, t.gid)],
